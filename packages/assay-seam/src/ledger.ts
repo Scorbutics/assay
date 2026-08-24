@@ -497,7 +497,13 @@ const NON_FILTER_PARAMS = new Set(['select', 'order', 'limit', 'offset', 'column
 
 function filtersOf(url: URL): string[] {
     const columns = new Set<string>()
-    for (const key of url.searchParams.keys()) {
+    // `forEach` rather than `.keys()`: this package is type-checked under three
+    // different lib sets (Deno for JSR, the Edge runtime, and each consumer's
+    // tsconfig), and the iterator methods on URLSearchParams need DOM.Iterable,
+    // which JSR's check does not include. forEach is in the base DOM lib.
+    const keys: string[] = []
+    url.searchParams.forEach((_value, key) => keys.push(key))
+    for (const key of keys) {
         if (NON_FILTER_PARAMS.has(key)) continue
         // PostgREST logical operators (`or=(a.eq.1,b.eq.2)`) constrain columns we
         // do not parse out; record the operator so the entry is not read as

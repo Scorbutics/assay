@@ -1,0 +1,35 @@
+name: publish
+
+# Publishes both packages to JSR on a version tag.
+#
+# No token, anywhere. JSR accepts GitHub's OIDC identity, so the only setup is
+# on jsr.io: create the @scorbutics scope, create the two packages, and link
+# each to this repository. `id-token: write` below is what makes the exchange
+# possible — without it the publish fails asking for interactive auth.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # The seam first: the CLI declares it as a dependency, and publishing a
+      # package whose dependency does not yet exist is a broken version on the
+      # registry that cannot be unpublished.
+      - name: publish @scorbutics/assay-seam
+        working-directory: packages/assay-seam
+        run: deno publish
+
+      - name: publish @scorbutics/assay
+        working-directory: packages/assay
+        run: deno publish

@@ -1,0 +1,24 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: bun install
+      - run: bunx tsc --noEmit -p tsconfig.json
+      # The same check the publish will run, so a package that cannot be
+      # published fails here rather than on a tag.
+      - run: deno publish --dry-run
+        working-directory: packages/assay-seam
+      - run: deno publish --dry-run
+        working-directory: packages/assay

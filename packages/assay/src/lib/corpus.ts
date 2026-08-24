@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { projectRoot } from './paths.ts'
 
 export const LEDGER_TAG = '@ledger'
-export const WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
+export const WRITE_VERBS: Set<string> = new Set(['insert', 'update', 'upsert', 'delete'])
 
 /** PostgREST's `db-max-rows`. A read returning EXACTLY this was capped. */
 export const POSTGREST_CAP = 1000
@@ -244,7 +244,7 @@ export function summarise(entries: Entry[], rpcMap: RpcMap): OperationSummary[] 
 }
 
 /** A → B when A writes a table B reads. Self-edges dropped. */
-export function basins(summaries: OperationSummary[]) {
+export function basins(summaries: OperationSummary[]): Array<{ from: string; to: string; via: string[] }> {
     const edges: Array<{ from: string; to: string; via: string[] }> = []
     for (const a of summaries) {
         for (const b of summaries) {
@@ -257,7 +257,7 @@ export function basins(summaries: OperationSummary[]) {
 }
 
 /** How concentrated the graph is — the hairball check. */
-export function fanOut(summaries: OperationSummary[]) {
+export function fanOut(summaries: OperationSummary[]): Array<{ table: string; readers: number; writers: number }> {
     const readers = new Map<string, Set<string>>()
     const writers = new Map<string, Set<string>>()
     for (const s of summaries) {

@@ -52,7 +52,7 @@ export function projectRoot(from: string = process.cwd()): string {
 }
 
 /** A path inside the project, from its root. */
-export const fromRoot = (...parts: string[]) => join(projectRoot(), ...parts)
+export const fromRoot = (...parts: string[]): string => join(projectRoot(), ...parts)
 
 /** A path inside `.assay/`, which is where every declaration and artifact lives. */
-export const assayPath = (...parts: string[]) => join(projectRoot(), MARKER, ...parts)
+export const assayPath = (...parts: string[]): string => join(projectRoot(), MARKER, ...parts)

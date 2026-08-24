@@ -26,18 +26,34 @@ a Next.js server — which in a typical project live in two different repositori
 Vendoring a copy into each is the obvious move and the wrong one: the copies
 drift, and the drift is silent because both still compile.
 
-`npm:` specifiers resolve in the Edge runtime, so both sides can depend on the
-same published version instead.
+Both sides can depend on one published version instead.
+
+The packages live on [JSR](https://jsr.io) rather than npm. JSR is Deno-native,
+which is what the Edge half of a Supabase project actually is, and it serves node
+consumers through an npm-compatible registry — so one publish covers both. It
+also authenticates with GitHub, including OIDC from Actions, so releases need no
+registry credentials at all (see `.github/workflows/publish.yml`).
 
 ```jsonc
 // supabase/functions/deno.json
-{ "imports": { "assay-seam": "npm:@scorbutics/assay-seam@^0.1.0" } }
+{ "imports": { "@scorbutics/assay-seam": "jsr:@scorbutics/assay-seam@^0.1.0" } }
+```
+
+```ini
+# .npmrc
+@jsr:registry=https://npm.jsr.io
 ```
 
 ```jsonc
 // package.json
-{ "dependencies": { "@scorbutics/assay-seam": "^0.1.0" } }
+{ "dependencies": { "@scorbutics/assay-seam": "npm:@jsr/scorbutics__assay-seam@^0.1.0" } }
 ```
+
+## Releasing
+
+`git tag v0.1.0 && git push --tags`. Both packages must exist on jsr.io under the
+`@scorbutics` scope and be linked to this repository first; that is the only
+manual step, and it is done once in a browser.
 
 ## What a clean run means
 

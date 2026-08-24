@@ -64,7 +64,7 @@ function activeOverride(): string | null {
 }
 
 /** Find the database, without deciding whether its absence is acceptable. */
-export function discover(config = loadConfig()): Discovered {
+export function discover(config: Config = loadConfig()): Discovered {
     const { discover: d, envOverride } = config.database
     const override = envOverride ? process.env[envOverride] : undefined
     if (override) return { url: override, restUrl: null, serviceRole: null, via: `$${envOverride}` }
@@ -97,7 +97,7 @@ export function discover(config = loadConfig()): Discovered {
  * `skipIf`, and a skipped check is indistinguishable from a passing one in every
  * summary anyone reads.
  */
-export function requireDatabase(config = loadConfig()): Discovered & { url: string } {
+export function requireDatabase(config: Config = loadConfig()): Discovered & { url: string } {
     const found = discover(config)
     if (found.url) return found as Discovered & { url: string }
     throw new Error(

@@ -234,4 +234,7 @@ function main() {
     console.log(`\nWrote ${outPath}. Review the diff before committing — it is the review surface.`)
 }
 
-if (import.meta.main) main()
+// `import.meta.main` is a Deno/Bun extension the TypeScript DOM lib does not
+// declare, and this package is type-checked by both. The cast keeps the guard
+// without pulling in a runtime-specific type reference.
+if ((import.meta as { main?: boolean }).main) main()

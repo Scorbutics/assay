@@ -29,6 +29,7 @@
  *   bun assay/src/commands/empty-state.ts --log /tmp/fserve.log --next-log /tmp/next.log
  */
 
+import { Buffer } from 'node:buffer'
 import { discover } from '../lib/db.ts'
 import { requireScratch } from '../lib/guard.ts'
 import { readFileSync } from 'node:fs'

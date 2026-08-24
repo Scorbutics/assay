@@ -33,7 +33,7 @@ function typeOf(v: unknown): string {
  * otherwise a 200-item list produces 200 paths and two recordings of the same
  * endpoint never compare equal.
  */
-export function deriveShape(value: unknown, prefix = '', depth = 0, out = new Set<string>()): string[] {
+export function deriveShape(value: unknown, prefix = '', depth = 0, out: Set<string> = new Set<string>()): string[] {
     if (depth > MAX_DEPTH) {
         out.add(`${prefix}:<max-depth>`)
         return [...out].sort()

@@ -20,6 +20,7 @@
  * operations, is what makes a declaration honest.
  */
 
+import { Buffer } from 'node:buffer'
 import { discover } from '../lib/db.ts'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { Client } from 'pg'

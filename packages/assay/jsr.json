@@ -1,0 +1,31 @@
+{
+  "name": "@scorbutics/assay",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/lib/corpus.ts",
+    "./cli": "./src/cli.ts",
+    "./commands/backfill": "./src/commands/backfill.ts",
+    "./commands/capture": "./src/commands/capture.ts",
+    "./commands/check": "./src/commands/check.ts",
+    "./commands/declare": "./src/commands/declare.ts",
+    "./commands/diff": "./src/commands/diff.ts",
+    "./commands/drive": "./src/commands/drive.ts",
+    "./commands/empty-state": "./src/commands/empty-state.ts",
+    "./commands/expect": "./src/commands/expect.ts",
+    "./commands/intercept": "./src/commands/intercept.ts",
+    "./commands/invariants": "./src/commands/invariants.ts",
+    "./commands/mark": "./src/commands/mark.ts",
+    "./commands/nodes": "./src/commands/nodes.ts",
+    "./commands/report": "./src/commands/report.ts",
+    "./commands/rpc-map": "./src/commands/rpc-map.ts",
+    "./commands/scratch": "./src/commands/scratch.ts",
+    "./commands/static": "./src/commands/static.ts",
+    "./commands/tier1": "./src/commands/tier1.ts",
+    "./commands/verify": "./src/commands/verify.ts",
+    "./lib/corpus": "./src/lib/corpus.ts",
+    "./lib/db": "./src/lib/db.ts",
+    "./lib/guard": "./src/lib/guard.ts",
+    "./lib/paths": "./src/lib/paths.ts"
+  }
+}
