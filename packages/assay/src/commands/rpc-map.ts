@@ -21,8 +21,8 @@
  * does (e.g. `run_teams_sweep`) still resolves to the inner tables.
  *
  * Usage:
- *   bun assay/src/commands/rpc-map.ts > .assay/rpc-writes.json
- *   bun assay/src/commands/report.ts --rpc-map .assay/rpc-writes.json < ledger.log
+ *   assay rpc-map > .assay/rpc-writes.json
+ *   assay report --rpc-map .assay/rpc-writes.json < ledger.log
  *
  * ## Honest limits
  *

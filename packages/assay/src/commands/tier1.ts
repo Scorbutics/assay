@@ -16,7 +16,7 @@
  * number is the point of this tier. Failing the build on coverage would train
  * people to bypass it; printing it every build is what keeps it visible.
  *
- * Usage: bun assay/src/commands/tier1.ts [--json]
+ * Usage: assay tier1 [--json]
  */
 
 import { execFileSync } from 'node:child_process'
@@ -25,7 +25,7 @@ import { join } from 'node:path'
 import { loadConfig } from '../lib/db.ts'
 import { loadRpcMap } from '../lib/corpus.ts'
 import { captured, loadNodes } from './nodes.ts'
-import { projectRoot } from '../lib/paths.ts'
+import { commandPath, projectRoot } from '../lib/paths.ts'
 
 const ROOT = projectRoot()
 const read = (p: string) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'))
@@ -56,7 +56,7 @@ function main() {
     let staticFootprint: Record<string, { tables: string[]; writes: string[] }> = {}
     try {
         staticFootprint = JSON.parse(
-            execFileSync('bun', [join(ROOT, 'assay/src/commands/static.ts'), '--json'], { encoding: 'utf8' }))
+            execFileSync('bun', [commandPath('static'), '--json'], { encoding: 'utf8' }))
     } catch { /* the static crawl is best-effort; its absence is reported below */ }
 
     const issues: Issue[] = []

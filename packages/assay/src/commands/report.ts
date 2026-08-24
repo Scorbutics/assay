@@ -9,9 +9,9 @@
  *      three-line change to a shared service is not safe.
  *
  * Usage:
- *   bun assay/src/commands/report.ts < ledger.log
- *   supabase functions logs | bun assay/src/commands/report.ts
- *   bun assay/src/commands/report.ts --json < ledger.log
+ *   assay report < ledger.log
+ *   supabase functions logs | assay report
+ *   assay report --json < ledger.log
  *
  * COVERAGE IS PART OF THE OUTPUT, not a footnote. An operation with no ledger
  * lines is not an operation with no effects — it is one nobody has exercised,
@@ -95,7 +95,7 @@ function main() {
     if (!rpcMapLoaded) {
         console.log(`  ⚠ No RPC write map at ${rpcMapPath} — every write done inside a Postgres`)
         console.log('    function is MISSING from the write sets above. Build it with:')
-        console.log('      bun assay/src/commands/rpc-map.ts > .assay/rpc-writes.json')
+        console.log('      assay rpc-map > .assay/rpc-writes.json')
     }
     printNotCovered()
 }

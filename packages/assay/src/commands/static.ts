@@ -15,7 +15,7 @@
  *   observed, not in code    → reached through a helper this crawl did not follow,
  *                              or an rpc whose body writes it
  *
- * Usage: bun assay/src/commands/static.ts [--json]
+ * Usage: assay static [--json]
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'

@@ -15,6 +15,7 @@
  * repository: walk up from the working directory until the marker appears.
  */
 
+import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
@@ -56,3 +57,19 @@ export const fromRoot = (...parts: string[]): string => join(projectRoot(), ...p
 
 /** A path inside `.assay/`, which is where every declaration and artifact lives. */
 export const assayPath = (...parts: string[]): string => join(projectRoot(), MARKER, ...parts)
+
+/**
+ * Absolute path to a sibling command module.
+ *
+ * Commands spawn each other (tier1 and expect both shell out to `static`), and
+ * they used to do it through `join(projectRoot(), 'assay/src/commands/x.ts')` —
+ * a path into the CONSUMING repository, which was correct only while this tool
+ * lived inside one. Once published, that path does not exist and the spawn fails
+ * with "Module not found" in the middle of an otherwise working run.
+ *
+ * Resolved relative to THIS module instead, so it follows the package wherever
+ * it is installed.
+ */
+export function commandPath(name: string): string {
+    return fileURLToPath(new URL(`../commands/${name}.ts`, import.meta.url))
+}

@@ -8,7 +8,7 @@
  * the suite treats as evidence — the "third copy nobody diffs" — and the only
  * defence is making the ratio visible on every run.
  *
- * Usage: bun assay/src/commands/nodes.ts [--json]
+ * Usage: assay nodes [--json]
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'

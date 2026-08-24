@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { loadRpcMap } from '../lib/corpus.ts'
-import { projectRoot } from '../lib/paths.ts'
+import { commandPath, projectRoot } from '../lib/paths.ts'
 
 const ROOT = projectRoot()
 
@@ -44,7 +44,7 @@ function main() {
     const expected = load('.assay/expected.json').operations as Record<string, Expectation>
     const declared = load('.assay/operations.json').operations as Record<string, { reads: string[]; writes: string[]; rpc: string[] }>
     const staticFootprint = JSON.parse(
-        execFileSync('bun', [join(ROOT, 'assay/src/commands/static.ts'), '--json'], { encoding: 'utf8' }),
+        execFileSync('bun', [commandPath('static'), '--json'], { encoding: 'utf8' }),
     ) as Record<string, { tables: string[]; writes: string[] }>
     const { map: rpcMap } = loadRpcMap(join(ROOT, '.assay/rpc-writes.json'))
 

@@ -3,9 +3,9 @@
  * Points the local Supabase stack's DATA plane at a scratch database, so assay can
  * drive real operations without writing to the database you actually use.
  *
- *   bun assay/src/commands/scratch.ts on      # clone + repoint PostgREST at the clone
- *   bun assay/src/commands/scratch.ts off     # repoint at the real database
- *   bun assay/src/commands/scratch.ts status
+ *   assay scratch on      # clone + repoint PostgREST at the clone
+ *   assay scratch off     # repoint at the real database
+ *   assay scratch status
  *
  * ## Why PostgREST and not an env var
  *
@@ -87,8 +87,8 @@ if (cmd === 'status') {
     repoint(SCRATCH)
     writeFileSync(STATE, JSON.stringify({ database: SCRATCH }, null, 2) + '\n')
     console.log(`PostgREST → ${SCRATCH}. Mark it, then drive:`)
-    console.log(`  bun assay/src/commands/mark.ts --db postgresql://postgres:postgres@127.0.0.1:54322/${SCRATCH}`)
-    console.log(`Restore with: bun assay/src/commands/scratch.ts off`)
+    console.log(`  assay mark --db postgresql://postgres:postgres@127.0.0.1:54322/${SCRATCH}`)
+    console.log(`Restore with: assay scratch off`)
 } else if (cmd === 'off') {
     repoint(REAL)
     if (existsSync(STATE)) unlinkSync(STATE)

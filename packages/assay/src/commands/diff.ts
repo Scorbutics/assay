@@ -2,10 +2,10 @@
 /**
  * The EFFECT DIFF: what a change did to an operation's behaviour.
  *
- *   bun assay/src/commands/drive.ts <op> --out /tmp/before.log   # BEFORE editing
+ *   assay drive <op> --out /tmp/before.log   # BEFORE editing
  *   ...make the change...
- *   bun assay/src/commands/drive.ts <op> --out /tmp/after.log
- *   bun assay/src/commands/diff.ts /tmp/before.log /tmp/after.log
+ *   assay drive <op> --out /tmp/after.log
+ *   assay diff /tmp/before.log /tmp/after.log
  *
  * ## Why this and not just the gate
  *

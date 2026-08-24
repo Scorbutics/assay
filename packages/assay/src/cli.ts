@@ -7,7 +7,7 @@
  * That is the whole tool: a seam records what an operation did, a declaration
  * says what it may do, and the gate fails on the difference.
  *
- * Every command is also runnable directly (`bun assay/src/commands/check.ts`);
+ * Every command is also runnable directly (`assay check`);
  * this dispatcher exists so the package has one entry point when it moves out of
  * this repo.
  */

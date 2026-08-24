@@ -1,6 +1,6 @@
 {
   "name": "@scorbutics/assay",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Determine what a backend operation actually touches, and fail when it differs from what was declared.",
   "license": "MIT",
   "type": "module",

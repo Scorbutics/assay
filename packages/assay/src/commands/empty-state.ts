@@ -26,7 +26,7 @@
  *    nearly empty and the blast radius looks small.
  *
  * Usage:
- *   bun assay/src/commands/empty-state.ts --log /tmp/fserve.log --next-log /tmp/next.log
+ *   assay empty-state --log /tmp/fserve.log --next-log /tmp/next.log
  */
 
 import { Buffer } from 'node:buffer'

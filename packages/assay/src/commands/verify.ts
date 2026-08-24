@@ -15,7 +15,7 @@
  * It also refuses to run against a database nobody marked disposable — driving
  * real operations writes real rows, and `ledger-drive` enforces that guard.
  *
- * Usage: bun assay/src/commands/verify.ts [--corpus /tmp/assay.log]
+ * Usage: assay verify [--corpus /tmp/assay.log]
  */
 
 import { execFileSync } from 'node:child_process'

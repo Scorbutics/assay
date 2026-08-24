@@ -33,9 +33,9 @@
  * possibly have broken. Everything else is skipped and SAID to be skipped.
  *
  * Usage:
- *   bun assay/src/commands/invariants.ts                        # all invariants
- *   bun assay/src/commands/invariants.ts --corpus corpus.log    # only what the run could break
- *   bun assay/src/commands/invariants.ts --accept               # baseline current violations
+ *   assay invariants                        # all invariants
+ *   assay invariants --corpus corpus.log    # only what the run could break
+ *   assay invariants --accept               # baseline current violations
  */
 
 import { discover } from '../lib/db.ts'
@@ -161,7 +161,7 @@ async function main() {
     for (const r of violated) {
         console.log(`✗ ${r.name}`)
         console.log(`    ${r.newKeys.length} NEW violation(s): ${r.newKeys.slice(0, 5).join(', ')}${r.newKeys.length > 5 ? ' …' : ''}`)
-        console.log(`    → Fix them, or accept as debt: bun assay/src/commands/invariants.ts --accept`)
+        console.log(`    → Fix them, or accept as debt: assay invariants --accept`)
     }
     for (const r of tolerated) console.log(`· ${r.name}: ${r.knownKeys.length} known violation(s), baselined`)
 

@@ -143,7 +143,7 @@ export function declaredOperations(): string[] {
     }
 }
 
-/** `{ fnName: [tables it writes] }`, from assay/src/commands/rpc-map.ts. */
+/** `{ fnName: [tables it writes] }`, from `assay rpc-map`. */
 export type RpcMap = Record<string, string[]>
 
 export function summarise(entries: Entry[], rpcMap: RpcMap): OperationSummary[] {

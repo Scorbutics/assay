@@ -11,9 +11,9 @@
  * Only SHAPES are written out — field paths and types. Nothing derived here can
  * carry a value, so the output is safe to commit and to diff in a review.
  *
- *   bun assay/src/commands/backfill.ts                    # every node with a source
- *   bun assay/src/commands/backfill.ts wix.order.inbound
- *   bun assay/src/commands/backfill.ts --json
+ *   assay backfill                    # every node with a source
+ *   assay backfill wix.order.inbound
+ *   assay backfill --json
  */
 
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'

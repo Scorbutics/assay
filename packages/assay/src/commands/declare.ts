@@ -21,8 +21,8 @@
  * are left exactly as they were.
  *
  * Usage:
- *   bun assay/src/commands/declare.ts corpus.log                 # show the diff
- *   bun assay/src/commands/declare.ts corpus.log --write         # apply it
+ *   assay declare corpus.log                 # show the diff
+ *   assay declare corpus.log --write         # apply it
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -171,7 +171,7 @@ function main() {
         console.error(`✗ No RPC write map at ${rpcMapPath}.`)
         console.error('  Declaring without it would record every rpc-mutating operation as a READER,')
         console.error('  and ledger-check would then enforce that lie. Build it first:')
-        console.error('    bun assay/src/commands/rpc-map.ts > .assay/rpc-writes.json')
+        console.error('    assay rpc-map > .assay/rpc-writes.json')
         process.exit(2)
     }
 

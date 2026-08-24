@@ -16,7 +16,7 @@
  *
  * Marking is deliberate and per-database, so it cannot be inherited by accident:
  *
- *   bun assay/src/commands/mark.ts --db <url>     # "this database is disposable"
+ *   assay mark --db <url>     # "this database is disposable"
  *
  * The marker records WHO marked it and WHEN, so a stale mark on a database that
  * has since become precious is at least visible rather than silent.
@@ -57,7 +57,7 @@ export async function requireScratch(dbUrl: string, what: string): Promise<void>
     console.error('  database that is data loss, not a test run.')
     console.error('')
     console.error('  If this database exists to be thrown away:')
-    console.error(`    bun assay/src/commands/mark.ts --db <url>`)
+    console.error(`    assay mark --db <url>`)
     console.error('')
     console.error('  If it does not, point assay at a scratch stack instead (see assay/README.md).')
     process.exit(2)

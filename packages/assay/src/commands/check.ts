@@ -30,8 +30,8 @@
  *   and the first thing anyone would do is stop running it.
  *
  * Usage:
- *   bun assay/src/commands/check.ts corpus.log
- *   bun assay/src/commands/check.ts corpus.log --strict --json
+ *   assay check corpus.log
+ *   assay check corpus.log --strict --json
  */
 
 import { loadRpcMap, printNotCovered, readCorpus, summarise } from '../lib/corpus.ts'
@@ -48,7 +48,7 @@ interface Finding {
     remedy: string
 }
 
-const ACCEPT = 'bun assay/src/commands/declare.ts <corpus> --write'
+const ACCEPT = 'assay declare <corpus> --write'
 
 function main() {
     const args = process.argv.slice(2)
@@ -71,7 +71,7 @@ function main() {
     if (!loaded) {
         console.error(`✗ No RPC write map at ${rpcMapPath} — every write done inside a Postgres`)
         console.error('  function would be invisible, so this check would pass by not looking.')
-        console.error('    bun assay/src/commands/rpc-map.ts > .assay/rpc-writes.json')
+        console.error('    assay rpc-map > .assay/rpc-writes.json')
         process.exit(2)
     }
 

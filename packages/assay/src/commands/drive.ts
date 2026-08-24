@@ -6,9 +6,9 @@
  * run: getting a corpus meant hand-rolling curl with a minted JWT, which is not
  * something a dev loop — or an agent — should be asked to do per edit.
  *
- *   bun assay/src/commands/drive.ts complete-mission        # one operation, all its branches
- *   bun assay/src/commands/drive.ts --all                   # every probe
- *   bun assay/src/commands/drive.ts complete-mission --out /tmp/corpus.log
+ *   assay drive complete-mission        # one operation, all its branches
+ *   assay drive --all                   # every probe
+ *   assay drive complete-mission --out /tmp/corpus.log
  *
  * The corpus is captured by slicing the Edge runtime log from the byte offset
  * taken immediately before each request, so lines are attributed to the probe
