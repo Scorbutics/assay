@@ -152,11 +152,47 @@ interface InterceptNode {
     /** `METHOD host/normalised-path`, matched exactly against the call target. */
     target: string
     intercept: 'store' | 'replay'
-    /** replay: the body handed back instead of calling out. */
+    /**
+     * replay: the body handed back instead of calling out. String values may
+     * reference the request — see template.ts.
+     */
     body?: unknown
+    /**
+     * When set, the node is active ONLY inside `withInterceptScope(tag, ...)`.
+     *
+     * This is what makes intercept usable in production. An unscoped node
+     * substitutes every matching call in the process, which is correct for a
+     * CI runtime and catastrophic for a live one; a scoped node substitutes
+     * only the requests the application has deliberately marked — an admin
+     * replaying a payment against fixtures, say — and leaves real traffic alone.
+     */
+    scope?: string
     status?: number
     /** store: where the request payload is persisted, in the APP's own table. */
     sink?: { table: string; column: string; extra?: Record<string, string> }
+}
+
+/**
+ * The intercept scope of the work currently running, if any.
+ *
+ * Separate from CURRENT (the operation name) because they answer different
+ * questions: CURRENT says which operation a statement belongs to, this says
+ * whether this particular run is allowed to have its third-party calls
+ * substituted. A production request has an operation and no scope.
+ */
+const SCOPE = new AsyncLocalStorage<string>()
+
+/**
+ * Run `fn` with an intercept scope active. Nodes declaring that scope
+ * substitute their calls for the duration; every other node is unaffected.
+ */
+export function withInterceptScope<T>(tag: string, fn: () => T): T {
+    return SCOPE.run(tag, fn)
+}
+
+/** The scope in force, for callers that need to report it. */
+export function currentInterceptScope(): string | undefined {
+    return SCOPE.getStore()
 }
 
 let interceptCache: InterceptNode[] | null = null
@@ -189,6 +225,9 @@ function interceptNodes(): InterceptNode[] {
  * The duplicate cost a test whose only job was to notice the two drifting.
  */
 import { deriveShape as shapeOf } from './shape.ts'
+import { factsOf, resolveBody } from './template.ts'
+export { captureParams, factsOf, resolveBody, resolveToken } from './template.ts'
+export type { RequestFacts, Resolved } from './template.ts'
 export { shapeOf }
 
 function emitShape(target: string, request: unknown, response: unknown, status: number | undefined): void {
@@ -233,6 +272,13 @@ export interface LedgerEntry {
      * would fail the moment it ran for real.
      */
     intercepted?: 'store' | 'replay'
+    /** Set when the node that answered was scoped — see withInterceptScope. */
+    interceptScope?: string
+    /**
+     * Fixture tokens the request could not satisfy. Present means the replayed
+     * body has holes: the call was answered, but not with what was declared.
+     */
+    unresolvedTokens?: string[]
     /** Monotonic index within the process, so a ledger keeps its order. */
     seq: number
 }
@@ -347,8 +393,21 @@ let originalFetch: typeof globalThis.fetch = globalThis.fetch
  * nobody has written yet. Supabase's own host is skipped — those requests ARE the
  * DB seam, and recording them twice would double every read.
  */
+/**
+ * True when an intercept policy is loaded, regardless of the ledger flag.
+ *
+ * The two switches are deliberately separate. Recording every statement in a
+ * live process is a cost and a disclosure decision; SUBSTITUTING a third-party
+ * call for an admin-triggered replay is a behaviour the application asked for.
+ * Requiring the first to get the second would mean turning full recording on in
+ * production to use a feature that has nothing to do with recording.
+ */
+export function interceptEnabled(): boolean {
+    return interceptNodes().length > 0
+}
+
 export function installOutboundSeam(ignoreHost?: string): void {
-    if (outboundInstalled || !ledgerEnabled()) return
+    if (outboundInstalled || (!ledgerEnabled() && !interceptEnabled())) return
     outboundInstalled = true
     const ignore = new Set<string>()
     for (const raw of [ignoreHost, (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env.get('SUPABASE_URL')]) {
@@ -368,7 +427,10 @@ export function installOutboundSeam(ignoreHost?: string): void {
         // INTERCEPT — decided before the call is made, so neither branch reaches
         // the third party. Recorded in the ledger with the policy that fired, so
         // a corpus can never be mistaken for one produced against a live provider.
-        const node = interceptNodes().find(n => n.target === target)
+        // A SCOPED node is inert outside its scope: that is what allows this to
+        // be armed in a live process without touching real traffic.
+        const scope = SCOPE.getStore()
+        const node = interceptNodes().find(n => n.target === target && (!n.scope || n.scope === scope))
         if (node) {
             let body: unknown
             if (init?.body && typeof init.body === 'string') {
@@ -376,21 +438,34 @@ export function installOutboundSeam(ignoreHost?: string): void {
             }
             if (node.intercept === 'store') {
                 await storePayload(node, body, url, ignore)
-                emitCall(target, node.status ?? 200, undefined, 'store')
+                emitCall(target, node.status ?? 200, undefined, 'store', node.scope)
                 return new Response(JSON.stringify(node.body ?? { id: `assay-stored`, assay: true }), {
                     status: node.status ?? 200, headers: { 'Content-Type': 'application/json' },
                 })
             }
-            emitCall(target, node.status ?? 200, undefined, 'replay')
-            return new Response(JSON.stringify(node.body ?? {}), {
+            // The fixture may reference the request, so a call whose answer
+            // depends on the question does not collapse onto one reply.
+            const { body: replayBody, unresolved } = resolveBody(
+                node.body ?? {},
+                factsOf(url, normalizePath(url.pathname), body),
+            )
+            // An unresolved token means the fixture asked for something the
+            // request did not carry. Silently returning a body with holes in it
+            // is how a fixture starts lying, so it is recorded on the entry.
+            emitCall(target, node.status ?? 200, undefined, 'replay', node.scope, unresolved)
+            return new Response(JSON.stringify(replayBody), {
                 status: node.status ?? 200, headers: { 'Content-Type': 'application/json' },
             })
         }
         const mode = captureMode()
         try {
             const res = await original(input as RequestInfo, init)
-            emitCall(target, res.status, res.ok ? undefined : `HTTP ${res.status}`)
-            if (mode === 'shape') {
+            // Intercepted calls are ALWAYS recorded (below, at the point of
+            // substitution) — a substitution nobody can see is indistinguishable
+            // from the provider having answered. An ordinary pass-through is
+            // recorded only when the ledger itself is on.
+            if (ledgerEnabled()) emitCall(target, res.status, res.ok ? undefined : `HTTP ${res.status}`)
+            if (mode === 'shape' && ledgerEnabled()) {
                 // The body can only be read once, so hand the caller a clone and
                 // derive from ours. Failing to capture must never break the call.
                 try {
@@ -406,7 +481,7 @@ export function installOutboundSeam(ignoreHost?: string): void {
             }
             return res
         } catch (e) {
-            emitCall(target, undefined, (e as Error).message)
+            if (ledgerEnabled()) emitCall(target, undefined, (e as Error).message)
             throw e
         }
     }
@@ -447,7 +522,14 @@ async function storePayload(
     }
 }
 
-function emitCall(target: string, status: number | undefined, error?: string, intercepted?: 'store' | 'replay'): void {
+function emitCall(
+    target: string,
+    status: number | undefined,
+    error?: string,
+    intercepted?: 'store' | 'replay',
+    scope?: string,
+    unresolved?: string[],
+): void {
     sink({
         operation: CURRENT.getStore() ?? 'unattributed',
         target,
@@ -459,6 +541,8 @@ function emitCall(target: string, status: number | undefined, error?: string, in
         ...(status !== undefined ? { status } : {}),
         ...(error ? { error: redactError(error) } : {}),
         ...(intercepted ? { intercepted } : {}),
+        ...(scope ? { interceptScope: scope } : {}),
+        ...(unresolved && unresolved.length ? { unresolvedTokens: unresolved } : {}),
         seq: seq++,
     })
 }
@@ -592,13 +676,16 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
     // those statements would land under `unattributed`.
     const operation = options.operation ?? CURRENT.getStore() ?? operationFromStack()
 
+    // Arm the outbound seam wherever the DB seam is installed, so the two cover
+    // the same operations without a second set of call sites to keep in sync.
+    // Before the ledger check, because an intercept policy arms it on its own:
+    // a production deployment may substitute a scoped call without recording
+    // every statement it issues.
+    installOutboundSeam()
+
     // Off by default: return the client untouched, so a deployment that has not
     // opted in pays nothing and writes nothing.
     if (!ledgerEnabled()) return client
-
-    // Arm the outbound seam wherever the DB seam is installed, so the two cover
-    // the same operations without a second set of call sites to keep in sync.
-    installOutboundSeam()
     // `enterWith`, not `run`: withLedger is called mid-handler and cannot wrap the
     // remaining work in a callback. The middleware uses runAsOperation, which is
     // stronger; this covers the functions that build their own client.

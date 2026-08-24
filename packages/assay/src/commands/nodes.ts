@@ -40,6 +40,8 @@ export interface SeamNode {
      * `store`, WIX_FAKE_CONTACTS is `replay` with an invented fixture.
      */
     intercept?: 'none' | 'store' | 'replay'
+    /** Node is inert outside `withInterceptScope(scope, ...)`. */
+    scope?: string
     /** replay: the response handed back. Values, so provenance matters. */
     fixture?: { status?: number; body: unknown }
     /** store: the app-owned table assay fills. assay must not own the schema. */

@@ -1,13 +1,14 @@
 {
   "name": "@scorbutics/assay-seam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The runtime seam: records what a backend operation touches, as shapes, without recording values.",
   "license": "MIT",
   "type": "module",
   "main": "./src/ledger.ts",
   "exports": {
     ".": "./src/ledger.ts",
-    "./shape": "./src/shape.ts"
+    "./shape": "./src/shape.ts",
+    "./template": "./src/template.ts"
   },
   "files": [
     "src",

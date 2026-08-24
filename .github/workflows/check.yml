@@ -39,6 +39,11 @@ jobs:
           done
       # The same check the publish will run, so a package that cannot be
       # published fails here rather than on a tag.
+      # The seam carries the only logic in this repo intricate enough to be
+      # worth unit tests: request-aware fixture resolution.
+      - run: deno test --allow-all
+        working-directory: packages/assay-seam
+
       - run: deno publish --dry-run
         working-directory: packages/assay-seam
       - run: deno publish --dry-run
