@@ -262,3 +262,22 @@ mode this whole thing exists to prevent:
 - **Concurrency.** A single-run ledger says nothing about interleaving.
 - **Logical drift not covered by an invariant.** Invariants are total over inputs but
   only over the properties someone wrote down. They are a floor, not a proof.
+
+## Running it from a node/bun project
+
+JSR serves node consumers through `npm.jsr.io`, but it has no concept of a
+`bin` — Deno does not have one — so the generated package exposes no executable
+and the file is not marked executable either. Call the entry point directly:
+
+```jsonc
+// package.json
+{
+  "scripts": {
+    "assay:check": "bun node_modules/@scorbutics/assay/src/cli.ts check",
+    "prebuild": "bun node_modules/@scorbutics/assay/src/cli.ts tier1"
+  }
+}
+```
+
+`package.json` here still declares a `bin`, which applies only if this package
+is ever installed from a registry that honours it.
