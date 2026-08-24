@@ -180,19 +180,26 @@ interface InterceptNode {
  * whether this particular run is allowed to have its third-party calls
  * substituted. A production request has an operation and no scope.
  */
-const SCOPE = new AsyncLocalStorage<string>()
+interface InterceptScope { tag: string; vars?: Record<string, string> }
+const SCOPE = new AsyncLocalStorage<InterceptScope>()
 
 /**
  * Run `fn` with an intercept scope active. Nodes declaring that scope
  * substitute their calls for the duration; every other node is unaffected.
  */
-export function withInterceptScope<T>(tag: string, fn: () => T): T {
-    return SCOPE.run(tag, fn)
+export function withInterceptScope<T>(
+    tag: string,
+    varsOrFn: Record<string, string> | (() => T),
+    maybeFn?: () => T,
+): T {
+    const fn = (typeof varsOrFn === 'function' ? varsOrFn : maybeFn)!
+    const vars = typeof varsOrFn === 'function' ? undefined : varsOrFn
+    return SCOPE.run({ tag, vars }, fn)
 }
 
 /** The scope in force, for callers that need to report it. */
 export function currentInterceptScope(): string | undefined {
-    return SCOPE.getStore()
+    return SCOPE.getStore()?.tag
 }
 
 let interceptCache: InterceptNode[] | null = null
@@ -430,7 +437,7 @@ export function installOutboundSeam(ignoreHost?: string): void {
         // A SCOPED node is inert outside its scope: that is what allows this to
         // be armed in a live process without touching real traffic.
         const scope = SCOPE.getStore()
-        const node = interceptNodes().find(n => n.target === target && (!n.scope || n.scope === scope))
+        const node = interceptNodes().find(n => n.target === target && (!n.scope || n.scope === scope?.tag))
         if (node) {
             let body: unknown
             if (init?.body && typeof init.body === 'string') {
@@ -447,7 +454,7 @@ export function installOutboundSeam(ignoreHost?: string): void {
             // depends on the question does not collapse onto one reply.
             const { body: replayBody, unresolved } = resolveBody(
                 node.body ?? {},
-                factsOf(url, normalizePath(url.pathname), body),
+                factsOf(url, normalizePath(url.pathname), body, scope?.vars),
             )
             // An unresolved token means the fixture asked for something the
             // request did not carry. Silently returning a body with holes in it

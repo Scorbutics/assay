@@ -17,6 +17,7 @@
  *   {path.N}          the Nth path segment, zero-based
  *   {query.name}      a query parameter
  *   {body.a.b}        a field of the request body, dotted
+ *   {scope.name}      a value the application passed to withInterceptScope
  *
  * A token may end in `|base64`, which decodes the resolved value. That one
  * transform exists because an opaque-looking identifier is the normal way to
@@ -32,6 +33,15 @@ export interface RequestFacts {
     params: Record<string, string>
     query: Record<string, string>
     body: unknown
+    /**
+     * Values supplied by the application when it entered the intercept scope.
+     *
+     * The outbound request is not always where the interesting value lives. An
+     * admin replaying a payment against fixtures knows the identity to use
+     * before any call is made, and the provider's URL carries no trace of it —
+     * so the scope carries it instead of the fixture guessing.
+     */
+    scope?: Record<string, string>
 }
 
 /**
@@ -56,7 +66,12 @@ export function captureParams(pathname: string, normalized: string): Record<stri
     return params
 }
 
-export function factsOf(url: URL, normalized: string, body: unknown): RequestFacts {
+export function factsOf(
+    url: URL,
+    normalized: string,
+    body: unknown,
+    scope?: Record<string, string>,
+): RequestFacts {
     const query: Record<string, string> = {}
     url.searchParams.forEach((v, k) => { query[k] = v })
     return {
@@ -64,6 +79,7 @@ export function factsOf(url: URL, normalized: string, body: unknown): RequestFac
         params: captureParams(url.pathname, normalized),
         query,
         body,
+        ...(scope ? { scope } : {}),
     }
 }
 
@@ -93,6 +109,7 @@ export function resolveToken(token: string, facts: RequestFacts): string | undef
     if (expr.startsWith('path.')) value = facts.path[Number(expr.slice(5))]
     else if (expr.startsWith('query.')) value = facts.query[expr.slice(6)]
     else if (expr.startsWith('body.')) value = dig(facts.body, expr.slice(5).split('.'))
+    else if (expr.startsWith('scope.')) value = facts.scope?.[expr.slice(6)]
     else value = facts.params[expr]
 
     if (value === undefined || value === null) return undefined

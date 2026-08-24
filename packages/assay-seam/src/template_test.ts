@@ -76,3 +76,18 @@ Deno.test('non-strings are left alone', () => {
     const f = facts('https://h/x/1234567890123456')
     assertEquals(resolveBody({ n: 42, b: true, z: null }, f).body, { n: 42, b: true, z: null })
 })
+
+Deno.test('a scope value is readable where the request carries no trace of it', () => {
+    // The admin-replay case: the identity to use is known before any call is
+    // made, and the provider URL says nothing about it.
+    const url = new URL('https://h/contacts/v4/contacts/6f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b')
+    const f = factsOf(url, normalizePath(url.pathname), undefined, { email: 'admin-test@example.invalid' })
+    assertEquals(resolveToken('scope.email', f), 'admin-test@example.invalid')
+    assertEquals(resolveToken('id', f), '6f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b')
+})
+
+Deno.test('an absent scope value is unresolved, not empty-but-plausible', () => {
+    const url = new URL('https://h/a/b')
+    const f = factsOf(url, normalizePath(url.pathname), undefined, {})
+    assertEquals(resolveToken('scope.email', f), undefined)
+})
