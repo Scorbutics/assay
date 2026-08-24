@@ -14,7 +14,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: bun install
+      - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit -p tsconfig.json
 
       # Each package has BOTH a jsr.json (what JSR publishes) and a package.json

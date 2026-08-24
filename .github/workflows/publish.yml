@@ -28,7 +28,7 @@ jobs:
       # resolution mode — so it wants @types/node present on disk. Without this
       # the publish fails at type-checking, and a local dry-run will NOT
       # reproduce it: the workspace already has node_modules.
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       # The seam first: the CLI declares it as a dependency, and publishing a
       # package whose dependency does not yet exist is a broken version on the
