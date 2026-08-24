@@ -30,11 +30,6 @@ jobs:
       # reproduce it: the workspace already has node_modules.
       - run: bun install --frozen-lockfile
 
-      # A version bump rewrites the import specifiers in packages/assay/deno.json
-      # and invalidates deno.lock with them. Regenerating here rather than
-      # freezing: at release time the lock SHOULD move, and demanding it be
-      # committed in the same commit as the bump is a step that will be forgotten.
-      - run: deno install --frozen=false
 
       # The seam first: the CLI declares it as a dependency, and publishing a
       # package whose dependency does not yet exist is a broken version on the

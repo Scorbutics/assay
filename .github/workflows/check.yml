@@ -41,9 +41,12 @@ jobs:
       # published fails here rather than on a tag.
       # The seam carries the only logic in this repo intricate enough to be
       # worth unit tests: request-aware fixture resolution.
-      # --frozen: the test pulls jsr:@std/assert, and letting it rewrite deno.lock
-      # leaves the tree dirty for the dry-run that follows, which then refuses.
-      - run: deno test --allow-all --frozen
+      # --no-lock, deliberately. A lockfile here broke three releases in a row:
+      # bumping the version changes packages/assay's dependency on the seam to a
+      # version that does not exist YET, so the lock cannot be resolved until
+      # after the publish it is supposed to gate. The only locked dependency was
+      # a pinned @std/assert, so it was buying almost nothing.
+      - run: deno test --allow-all --no-lock
         working-directory: packages/assay-seam
 
       - run: deno publish --dry-run

@@ -1,16 +1,13 @@
 #!/usr/bin/env node
 /**
- * Bump both packages and regenerate the lockfile.
+ * Bump both packages in step.
  *
- * Doing this by hand broke the release twice: a version bump rewrites the
- * import specifiers in packages/assay/deno.json, which invalidates deno.lock,
- * and the check job then fails on a tree the publish job had just accepted.
- * Two steps that must happen together is exactly what a script is for.
+ * Four files carry the version and one of them also carries the dependency
+ * range between the two packages. Doing that by hand broke two releases.
  *
  *   node bump.mjs 0.3.2
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
 
 const version = process.argv[2]
 if (!/^\d+\.\d+\.\d+$/.test(version ?? '')) {
@@ -34,5 +31,4 @@ for (const f of files) {
   console.log(`  ${f} -> ${version}`)
 }
 
-execFileSync('deno', ['install', '--frozen=false'], { stdio: 'inherit' })
-console.log(`  deno.lock regenerated — commit both, then: git tag v${version} && git push --tags`)
+console.log(`  done — commit, then: git tag v${version} && git push --tags`)
