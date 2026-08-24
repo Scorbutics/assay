@@ -437,7 +437,13 @@ export function installOutboundSeam(ignoreHost?: string): void {
         // A SCOPED node is inert outside its scope: that is what allows this to
         // be armed in a live process without touching real traffic.
         const scope = SCOPE.getStore()
-        const node = interceptNodes().find(n => n.target === target && (!n.scope || n.scope === scope?.tag))
+        // Most specific wins: a node scoped to the run in progress beats an
+        // unscoped one for the same target. Without this the answer would
+        // depend on the order nodes happen to appear in the policy, and an
+        // admin's scoped replay would silently get the CI fixture instead.
+        const candidates = interceptNodes().filter(
+            n => n.target === target && (!n.scope || n.scope === scope?.tag))
+        const node = candidates.find(n => n.scope) ?? candidates[0]
         if (node) {
             let body: unknown
             if (init?.body && typeof init.body === 'string') {

@@ -1,6 +1,6 @@
 {
   "name": "@scorbutics/assay-seam",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "The runtime seam: records what a backend operation touches, as shapes, without recording values.",
   "license": "MIT",
   "type": "module",
