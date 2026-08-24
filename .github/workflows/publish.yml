@@ -22,6 +22,13 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - uses: oven-sh/setup-bun@v2
+
+      # Each package carries a package.json, which puts Deno into node
+      # resolution mode — so it wants @types/node present on disk. Without this
+      # the publish fails at type-checking, and a local dry-run will NOT
+      # reproduce it: the workspace already has node_modules.
+      - run: bun install
 
       # The seam first: the CLI declares it as a dependency, and publishing a
       # package whose dependency does not yet exist is a broken version on the

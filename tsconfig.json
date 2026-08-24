@@ -14,7 +14,6 @@
       "ES2022",
       "DOM"
     ],
-    "baseUrl": ".",
     "paths": {
       "@scorbutics/assay-seam": [
         "./packages/assay-seam/src/ledger.ts"
@@ -27,7 +26,11 @@
   "include": [
     "packages/*/src/**/*.ts"
   ]
-  // NOTE: `paths` resolves the sibling package for THIS repo's own typecheck
+  // NOTE: no `baseUrl` — it is deprecated in TypeScript 7, and `deno publish`
+  // reads this file and fails on it. `paths` resolves relative to this file
+  // without it.
+  //
+  // `paths` resolves the sibling package for THIS repo's own typecheck
   // only. packages/assay declares it as `file:../assay-seam` so a consumer
   // installing from outside this workspace resolves it — and bun then declines
   // to symlink it inside the workspace, since it is also a workspace member.

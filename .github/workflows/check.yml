@@ -16,6 +16,27 @@ jobs:
           deno-version: v2.x
       - run: bun install
       - run: bunx tsc --noEmit -p tsconfig.json
+
+      # Each package has BOTH a jsr.json (what JSR publishes) and a package.json
+      # (what a local `file:` consumer reads). Name and version therefore exist
+      # twice per package, and nothing else would notice them diverging — the
+      # symptom would be a consumer pinned to a version that was never published.
+      - name: manifests agree
+        run: |
+          for p in packages/*/; do
+            node -e '
+              const fs = require("fs"), d = process.argv[1]
+              const j = JSON.parse(fs.readFileSync(d + "/jsr.json"))
+              const n = JSON.parse(fs.readFileSync(d + "/package.json"))
+              for (const k of ["name", "version"]) {
+                if (j[k] !== n[k]) {
+                  console.error(`${d}: jsr.json ${k}=${j[k]} but package.json ${k}=${n[k]}`)
+                  process.exit(1)
+                }
+              }
+              console.log(`  ${j.name}@${j.version} consistent`)
+            ' "$p"
+          done
       # The same check the publish will run, so a package that cannot be
       # published fails here rather than on a tag.
       - run: deno publish --dry-run
