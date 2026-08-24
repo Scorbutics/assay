@@ -7,8 +7,8 @@ Two packages, because they have different audiences and very different weight:
 
 | package | runs where | weight |
 |---|---|---|
-| [`assay-seam`](packages/assay-seam) | in your application, in production | two files, one host requirement (`node:async_hooks`) |
-| [`assay`](packages/assay) | on a developer machine and in CI | node-only; needs `pg` |
+| [`@scorbutics/assay-seam`](packages/assay-seam) | in your application, in production | two files, one host requirement (`node:async_hooks`) |
+| [`@scorbutics/assay`](packages/assay) | on a developer machine and in CI | node-only; needs `pg` |
 
 `assay-seam` records, as a log line per statement, which table an operation read
 or wrote, which columns it filtered on, whether it ran with RLS bypassed, and the
@@ -31,12 +31,12 @@ same published version instead.
 
 ```jsonc
 // supabase/functions/deno.json
-{ "imports": { "assay-seam": "npm:assay-seam@^0.1.0" } }
+{ "imports": { "assay-seam": "npm:@scorbutics/assay-seam@^0.1.0" } }
 ```
 
 ```jsonc
 // package.json
-{ "dependencies": { "assay-seam": "^0.1.0" } }
+{ "dependencies": { "@scorbutics/assay-seam": "^0.1.0" } }
 ```
 
 ## What a clean run means

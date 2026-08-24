@@ -1,5 +1,5 @@
 {
-  "name": "assay",
+  "name": "@scorbutics/assay",
   "version": "0.1.0",
   "description": "Determine what a backend operation actually touches, and fail when it differs from what was declared.",
   "license": "MIT",
@@ -19,10 +19,10 @@
     "README.md"
   ],
   "dependencies": {
-    "assay-seam": "file:../assay-seam"
+    "@scorbutics/assay-seam": "file:../assay-seam"
   },
   "publishConfig": {
-    "note": "On publish, assay-seam must become a version range: npm cannot resolve a file: dependency."
+    "access": "public"
   },
   "peerDependencies": {
     "pg": "^8"

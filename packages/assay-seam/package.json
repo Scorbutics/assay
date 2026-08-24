@@ -1,5 +1,5 @@
 {
-  "name": "assay-seam",
+  "name": "@scorbutics/assay-seam",
   "version": "0.1.0",
   "description": "The runtime seam: records what a backend operation touches, as shapes, without recording values.",
   "license": "MIT",
@@ -9,7 +9,19 @@
     ".": "./src/ledger.ts",
     "./shape": "./src/shape.ts"
   },
-  "files": ["src", "README.md"],
-  "keywords": ["supabase", "deno", "postgrest", "observability", "testing"],
-  "sideEffects": false
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "supabase",
+    "deno",
+    "postgrest",
+    "observability",
+    "testing"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  }
 }

@@ -20,7 +20,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from 'pg'
 import { discover } from '../lib/db.ts'
-import { deriveShape, diffShape } from 'assay-seam/shape'
+import { deriveShape, diffShape } from '@scorbutics/assay-seam/shape'
 import { loadNodes, type SeamNode } from './nodes.ts'
 import { projectRoot } from '../lib/paths.ts'
 

@@ -16,7 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { assayPath } from '../lib/paths.ts'
-import { diffShape } from 'assay-seam/shape'
+import { diffShape } from '@scorbutics/assay-seam/shape'
 import { loadNodes, type SeamNode } from './nodes.ts'
 
 const TAG = '@assay-shape'

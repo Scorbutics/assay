@@ -1,7 +1,7 @@
 /**
  * THE SEAM — one source, consumed by every runtime as a PACKAGE.
  *
- *   - Supabase Edge Functions (Deno) — `npm:assay-seam` via the import map.
+ *   - Supabase Edge Functions (Deno) — `npm:@scorbutics/assay-seam` via the import map.
  *   - Next.js / node / bun — an ordinary dependency.
  *
  * It briefly lived in the consuming application's backend repository, with the
