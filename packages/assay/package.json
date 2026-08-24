@@ -1,0 +1,35 @@
+{
+  "name": "assay",
+  "version": "0.1.0",
+  "description": "Determine what a backend operation actually touches, and fail when it differs from what was declared.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "assay": "./src/cli.ts"
+  },
+  "main": "./src/lib/corpus.ts",
+  "exports": {
+    ".": "./src/lib/corpus.ts",
+    "./lib/*": "./src/lib/*.ts",
+    "./cli": "./src/cli.ts",
+    "./commands/*": "./src/commands/*.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "assay-seam": "file:../assay-seam"
+  },
+  "publishConfig": {
+    "note": "On publish, assay-seam must become a version range: npm cannot resolve a file: dependency."
+  },
+  "peerDependencies": {
+    "pg": "^8"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": false
+    }
+  }
+}

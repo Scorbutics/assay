@@ -1,0 +1,15 @@
+{
+  "name": "assay-seam",
+  "version": "0.1.0",
+  "description": "The runtime seam: records what a backend operation touches, as shapes, without recording values.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/ledger.ts",
+  "exports": {
+    ".": "./src/ledger.ts",
+    "./shape": "./src/shape.ts"
+  },
+  "files": ["src", "README.md"],
+  "keywords": ["supabase", "deno", "postgrest", "observability", "testing"],
+  "sideEffects": false
+}
