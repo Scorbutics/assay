@@ -26,7 +26,7 @@
     "members": {
       "packages/assay": {
         "dependencies": [
-          "jsr:@scorbutics/assay-seam@0.2",
+          "jsr:@scorbutics/assay-seam@0.3",
           "npm:pg@8"
         ]
       }
