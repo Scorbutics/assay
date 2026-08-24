@@ -17,7 +17,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit -p tsconfig.json
 
-      # Each package has BOTH a jsr.json (what JSR publishes) and a package.json
+      # Each package has BOTH a deno.json (what JSR publishes) and a package.json
       # (what a local `file:` consumer reads). Name and version therefore exist
       # twice per package, and nothing else would notice them diverging — the
       # symptom would be a consumer pinned to a version that was never published.
@@ -26,11 +26,11 @@ jobs:
           for p in packages/*/; do
             node -e '
               const fs = require("fs"), d = process.argv[1]
-              const j = JSON.parse(fs.readFileSync(d + "/jsr.json"))
+              const j = JSON.parse(fs.readFileSync(d + (fs.existsSync(d + "/deno.json") ? "/deno.json" : "/jsr.json")))
               const n = JSON.parse(fs.readFileSync(d + "/package.json"))
               for (const k of ["name", "version"]) {
                 if (j[k] !== n[k]) {
-                  console.error(`${d}: jsr.json ${k}=${j[k]} but package.json ${k}=${n[k]}`)
+                  console.error(`${d}: deno.json ${k}=${j[k]} but package.json ${k}=${n[k]}`)
                   process.exit(1)
                 }
               }
