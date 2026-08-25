@@ -295,6 +295,25 @@ export interface LedgerOptions {
     operation?: string
     /** Whether this client bypasses RLS. */
     serviceRole?: boolean
+    /**
+     * Force the seam on or off, instead of probing the environment.
+     *
+     * `ledgerEnabled()` reads Deno.env / process.env, and neither exists in a
+     * BROWSER: a bundler inlines only the variables it is told to expose, so the
+     * probe can never see the host's flag and the seam would be permanently off
+     * there. Rather than teach this package one bundler's naming convention, the
+     * host passes the answer.
+     */
+    enabled?: boolean
+    /**
+     * Patch `globalThis.fetch` to record outbound calls. Default true.
+     *
+     * Worth turning off in a browser. There the seam's premise — that a fetch is
+     * a call to a third party worth recording — does not hold: it would wrap
+     * every request the page makes, including the framework's own navigation and
+     * data fetches, and bury the statements you came to read.
+     */
+    outbound?: boolean
 }
 
 /** Every entry passes through here. Replace it to collect in-process. */
@@ -694,11 +713,11 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
     // Before the ledger check, because an intercept policy arms it on its own:
     // a production deployment may substitute a scoped call without recording
     // every statement it issues.
-    installOutboundSeam()
+    if (options.outbound !== false) installOutboundSeam()
 
     // Off by default: return the client untouched, so a deployment that has not
     // opted in pays nothing and writes nothing.
-    if (!ledgerEnabled()) return client
+    if (!(options.enabled ?? ledgerEnabled())) return client
     // `enterWith`, not `run`: withLedger is called mid-handler and cannot wrap the
     // remaining work in a callback. The middleware uses runAsOperation, which is
     // stronger; this covers the functions that build their own client.
