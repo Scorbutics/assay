@@ -101,7 +101,13 @@ async function main() {
 
     const map: Record<string, string[]> = {}
     const dynamic: string[] = []
-    for (const name of names) {
+    // SORTED, because this output is COMPARED. Postgres returns pg_proc rows in
+    // no particular order, so two runs against the same schema produced the same
+    // 137 functions in different key order — byte-different files describing an
+    // identical database. That is fine for a file nobody diffs and fatal for one
+    // a CI step regenerates to prove it is not stale: every run would fail, and a
+    // check that cries wolf every night is one nobody reads.
+    for (const name of [...names].sort()) {
         map[name] = resolve(name)
         if (DYNAMIC_RE.test(bodies.get(name) ?? '')) dynamic.push(name)
     }
