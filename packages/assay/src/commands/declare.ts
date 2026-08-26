@@ -107,20 +107,51 @@ export function declarationOf(s: OperationSummary): Declaration {
     return { reads: s.reads, writes: s.writes, rpc: s.rpcs, calls: s.calls, rlsBypassed: s.serviceRole, profile: s.profile }
 }
 
-/** Sorted key order, so the file diffs line-by-line rather than wholesale. */
+/** The fields this command DERIVES from a corpus. Everything else was written by a human. */
+const DERIVED = ['reads', 'writes', 'rpc', 'calls', 'rlsBypassed', 'profile'] as const
+
+/**
+ * Sorted operation order and stable field order, so the file diffs line-by-line
+ * rather than wholesale.
+ *
+ * Two rules, both about the same thing — this file is a REVIEW SURFACE, and a
+ * rewrite that touches lines nobody changed costs exactly what the surface is
+ * worth:
+ *
+ *  1. Everything that is NOT derived is carried through untouched, by EXCLUSION
+ *     rather than by an allowlist. The allowlist this replaces named four
+ *     hand-written fields and missed `why:` — so one `declare --write` deleted
+ *     the rationale from every operation in the file, including operations the
+ *     corpus never mentioned, since this function rewrites all of them. That
+ *     text is the only part of a declaration a corpus can never reconstruct. By
+ *     exclusion, a field nobody has thought of yet survives by default, which is
+ *     the correct direction for a rule about someone else's writing.
+ *
+ *  2. Fields keep the ORDER THEY ARRIVED IN, with anything new appended.
+ *     Imposing a canonical order instead reformats every entry the first time it
+ *     runs — 140 changed lines to express five changed facts.
+ */
 function stable(file: DeclarationFile): string {
     const operations: Record<string, Declaration> = {}
     for (const key of Object.keys(file.operations).sort()) {
-        const d = file.operations[key]
-        operations[key] = {
-            reads: [...d.reads].sort(), writes: [...d.writes].sort(), rpc: [...d.rpc].sort(),
-            calls: [...(d.calls ?? [])].sort(),
-            rlsBypassed: d.rlsBypassed, ...(d.profile ? { profile: d.profile } : {}),
-            ...(d.mustNotFilterOn ? { mustNotFilterOn: [...d.mustNotFilterOn].sort() } : {}),
-            ...(d.mustNotCall ? { mustNotCall: [...d.mustNotCall].sort() } : {}),
-            ...(d.mustFollow ? { mustFollow: d.mustFollow } : {}),
-            ...(d.keyingWhy ? { keyingWhy: d.keyingWhy } : {}),
+        const d = file.operations[key] as Declaration & Record<string, unknown>
+        const value = (k: string): unknown => {
+            switch (k) {
+                case 'reads': case 'writes': case 'rpc': return [...(d[k] as string[])].sort()
+                case 'calls': return [...(d.calls ?? [])].sort()
+                // Two hand-written fields are SETS, and a set that keeps
+                // insertion order churns the diff on every rewrite.
+                case 'mustNotFilterOn': case 'mustNotCall':
+                    return Array.isArray(d[k]) ? [...(d[k] as string[])].sort() : d[k]
+                default: return d[k]
+            }
         }
+        const out: Record<string, unknown> = {}
+        for (const k of Object.keys(d)) if (d[k] !== undefined) out[k] = value(k)
+        // A derived field the entry did not carry yet — a first `calls`, say.
+        for (const k of DERIVED) if (!(k in out) && d[k as keyof Declaration] !== undefined) out[k] = value(k)
+        if (!('calls' in out)) out.calls = []
+        operations[key] = out as unknown as Declaration
     }
     return JSON.stringify({ version: 1, operations }, null, 2) + '\n'
 }
@@ -189,6 +220,12 @@ function main() {
         // CAN happen, not an exhaustive account of what can.
         const merged: Declaration = before
             ? {
+                // DECLARED INTENT is carried forward untouched — every field of
+                // it, by spreading what was there rather than by naming the
+                // fields worth keeping. A corpus cannot express a prohibition or
+                // a rationale, so anything this command did not derive is not
+                // this command's to drop.
+                ...before,
                 reads: [...new Set([...before.reads, ...after.reads])].sort(),
                 writes: [...new Set([...before.writes, ...after.writes])].sort(),
                 rpc: [...new Set([...before.rpc, ...after.rpc])].sort(),
@@ -197,14 +234,6 @@ function main() {
                 // Magnitudes are REPLACED, not unioned: the point is what the
                 // operation does now, and a union of magnitudes means nothing.
                 profile: after.profile ?? before.profile,
-                // DECLARED INTENT is carried forward untouched. Regeneration derives
-                // the observed half from a corpus; a corpus cannot express a
-                // prohibition, so clobbering these would silently delete the only
-                // part of the file a human actually wrote.
-                ...(before.mustNotFilterOn ? { mustNotFilterOn: before.mustNotFilterOn } : {}),
-                ...(before.mustNotCall ? { mustNotCall: before.mustNotCall } : {}),
-                ...(before.mustFollow ? { mustFollow: before.mustFollow } : {}),
-                ...(before.keyingWhy ? { keyingWhy: before.keyingWhy } : {}),
             }
             : after
         const lines = diffLines(before, merged)

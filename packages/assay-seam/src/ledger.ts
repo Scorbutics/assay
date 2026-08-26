@@ -389,7 +389,17 @@ export function normalizePath(pathname: string): string {
             // produced one declaration entry per contact.
             if (/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(seg)) return '{id}'
             if (/^\d+$/.test(seg)) return '{id}'
-            if (/^[a-z]{2,6}_[A-Za-z0-9]{6,}$/.test(seg)) return '{id}'   // cus_… sub_… evt_…
+            // cus_… sub_… evt_… — a short lowercase prefix and an opaque token.
+            //
+            // The tail must carry a DIGIT OR AN UPPERCASE LETTER. Without that
+            // clause the rule also matched ordinary snake_case path segments:
+            // Qonto's `/v2/client_invoices` normalised to `/v2/{id}`, so the
+            // declared node for it could never match, the replay never fired,
+            // and the call left the process and came back 401 — while the
+            // ledger showed a target no one had written down. A provider id is
+            // an encoded token and effectively always carries one or the other;
+            // an English path word carries neither.
+            if (/^[a-z]{2,6}_(?=[A-Za-z0-9]*[0-9A-Z])[A-Za-z0-9]{6,}$/.test(seg)) return '{id}'
             if (/^[0-9a-f]{16,}$/i.test(seg)) return '{id}'
             if (seg.includes('@')) return '{email}'
             // Opaque high-entropy segment: long, mixed-case AND containing a digit.
@@ -541,7 +551,7 @@ async function storePayload(
     if (!node.sink || !base || !key) return
     try {
         const row: Record<string, unknown> = { [node.sink.column]: body, ...(node.sink.extra ?? {}) }
-        await originalFetch(`${base}/rest/v1/${node.sink.table}`, {
+        const res = await originalFetch(`${base}/rest/v1/${node.sink.table}`, {
             method: 'POST',
             headers: {
                 apikey: key, Authorization: `Bearer ${key}`,
@@ -549,6 +559,21 @@ async function storePayload(
             },
             body: JSON.stringify(row),
         })
+        // The response was DISCARDED here, so a rejected insert was
+        // indistinguishable from a successful one: `email.send` filed nothing
+        // for an entire run because email_previews.html is NOT NULL and the
+        // node's `extra` did not supply it, PostgREST answered 400, and the
+        // ledger still showed `intercepted: "store"` on every call. A store that
+        // silently drops is a store that reads as working — which this function's
+        // own catch block already said, while only catching a thrown error.
+        if (!res.ok) {
+            const detail = await res.text().catch(() => '')
+            console.error(
+                `[assay] sink REJECTED for ${node.id} → ${node.sink.table}: HTTP ${res.status} ` +
+                `${redactError(detail)}. The call was still substituted, so nothing reached the ` +
+                `provider — but nothing was persisted either.`,
+            )
+        }
     } catch (e) {
         // A sink failure must not take down the operation it intercepted; say so
         // loudly instead, because a store that silently drops is a store that

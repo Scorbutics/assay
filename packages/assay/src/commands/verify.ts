@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { requireDatabase } from '../lib/db.ts'
-import { projectRoot } from '../lib/paths.ts'
+import { commandPath, projectRoot } from '../lib/paths.ts'
 
 const ROOT = projectRoot()
 
@@ -52,13 +52,18 @@ async function main() {
 
     // The rpc map must be current: without it every write done inside a Postgres
     // function is invisible, and the gate would pass by not looking.
-    const mapOut = execFileSync('bun', [join(ROOT, 'assay/src/commands/rpc-map.ts')], { cwd: ROOT, encoding: 'utf8' })
+    // commandPath, never join(ROOT, …): these modules follow the PACKAGE, and
+    // the project they run against no longer contains a copy of them. Spawning
+    // `<root>/assay/src/commands/…` broke the moment assay was vendored under
+    // `vendor/assay/packages/` — every step failed with "Module not found",
+    // which `step()` reports as a step failure rather than as a missing tool.
+    const mapOut = execFileSync('bun', [commandPath('rpc-map')], { cwd: ROOT, encoding: 'utf8' })
     writeFileSync(join(ROOT, '.assay/rpc-writes.json'), mapOut)
     console.log('  rpc write map rebuilt')
 
     const results: Array<{ name: string; ok: boolean }> = []
 
-    const drive = step('drive every probe', [join(ROOT, 'assay/src/commands/drive.ts'), '--all', '--out', corpus])
+    const drive = step('drive every probe', [commandPath('drive'), '--all', '--out', corpus])
     results.push({ name: 'drive', ok: drive.ok })
     if (!drive.ok) {
         console.error('\nassay: driving failed — the gate below would be meaningless, so stopping.')
@@ -74,8 +79,8 @@ async function main() {
     }
     console.log(`  corpus: ${captured} statement(s)`)
 
-    results.push({ name: 'gate', ok: step('gate the corpus', [join(ROOT, 'assay/src/commands/check.ts'), corpus]).ok })
-    results.push({ name: 'invariants', ok: step('invariants', [join(ROOT, 'assay/src/commands/invariants.ts'), '--corpus', corpus]).ok })
+    results.push({ name: 'gate', ok: step('gate the corpus', [commandPath('check'), corpus]).ok })
+    results.push({ name: 'invariants', ok: step('invariants', [commandPath('invariants'), '--corpus', corpus]).ok })
 
     const failed = results.filter(r => !r.ok)
     console.log(`\n${'─'.repeat(60)}`)
