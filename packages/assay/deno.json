@@ -1,11 +1,11 @@
 {
   "name": "@scorbutics/assay",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "MIT",
   "imports": {
     "pg": "npm:pg@^8",
-    "@scorbutics/assay-seam": "jsr:@scorbutics/assay-seam@^0.4.1",
-    "@scorbutics/assay-seam/shape": "jsr:@scorbutics/assay-seam@^0.4.1/shape"
+    "@scorbutics/assay-seam": "jsr:@scorbutics/assay-seam@^0.4.2",
+    "@scorbutics/assay-seam/shape": "jsr:@scorbutics/assay-seam@^0.4.2/shape"
   },
   "exports": {
     ".": "./src/lib/corpus.ts",
