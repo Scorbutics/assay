@@ -71,5 +71,10 @@ export const assayPath = (...parts: string[]): string => join(projectRoot(), MAR
  * it is installed.
  */
 export function commandPath(name: string): string {
-    return fileURLToPath(new URL(`../commands/${name}.ts`, import.meta.url))
+    // `.href`, not the URL object: node's `fileURLToPath` is typed against node's
+    // own URL, and under Deno's lib set the global URL is a different type whose
+    // URLSearchParams lacks the iterator methods — so passing the object fails
+    // type-checking with TS2345 and `deno publish` refuses the package. A string
+    // is accepted by both and means the same thing.
+    return fileURLToPath(new URL(`../commands/${name}.ts`, import.meta.url).href)
 }

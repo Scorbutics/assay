@@ -78,6 +78,17 @@
 // Through the package's OWN name, not a relative path: the './async-context' export carries a
 // `browser` condition, and a condition is resolved from the SPECIFIER — which survives this package
 // being reached through a symlink, where a path-based `browser` field mapping does not.
+//
+// That specifier is also mapped back to this file in `jsr.json`'s `imports`, and REMOVING THAT MAP
+// BREAKS PUBLISHING. `deno publish` resolves an external specifier the way a consumer would, so the
+// package's own name resolves against the ALREADY-PUBLISHED version — which, for any subpath added
+// since the last release, does not exist yet:
+//
+//     failed to build module graph: export 'async-context' not found in jsr:@scorbutics/assay-seam
+//
+// Nothing local reproduces it. `deno check` resolves the self-reference through this package.json,
+// and `deno publish --dry-run` type-checks and stops before the registry graph is built, so both
+// pass on a tree that cannot be published.
 import { AsyncLocalStorage } from '@scorbutics/assay-seam/async-context'
 
 /**

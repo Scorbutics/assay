@@ -1,12 +1,15 @@
 {
   "name": "@scorbutics/assay-seam",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "license": "MIT",
   "exports": {
     ".": "./src/ledger.ts",
     "./shape": "./src/shape.ts",
     "./template": "./src/template.ts",
     "./async-context": "./src/async-context.ts"
+  },
+  "imports": {
+    "@scorbutics/assay-seam/async-context": "./src/async-context.ts"
   },
   "publish": {
     "exclude": [
