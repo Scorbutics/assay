@@ -50,6 +50,8 @@ interface Finding {
 
 const ACCEPT = 'assay declare <corpus> --write'
 
+import { isEntrypoint } from '../lib/paths.ts'
+
 function main() {
     const args = process.argv.slice(2)
     const strict = args.includes('--strict')
@@ -286,11 +288,7 @@ function main() {
     process.exit(errors.length ? 1 : 0)
 }
 
-// `import.meta.main` is a Deno/Bun extension the TypeScript DOM lib does not
-// declare, and this package is type-checked by both. The cast keeps the guard
-// without pulling in a runtime-specific type reference.
-//
-// WITHOUT IT, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one
+// WITHOUT THIS GUARD, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one
 // exported helper opened a database connection, ran the command's SQL and called
 // process.exit() — against whatever `discover()` found, which on a developer
 // machine is their own working database. It was invisible locally because that
@@ -298,4 +296,4 @@ function main() {
 // nothing, `new Client('')` falls back to pg's default host — the literal string
 // "base" — and the resolver failure surfaced as an unattributed rejection that
 // named an innocent test file.
-if ((import.meta as { main?: boolean }).main) main()
+if (isEntrypoint(import.meta.url)) main()

@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { loadRpcMap } from '../lib/corpus.ts'
-import { commandPath, projectRoot } from '../lib/paths.ts'
+import { commandPath, projectRoot, isEntrypoint } from '../lib/paths.ts'
 
 const ROOT = projectRoot()
 
@@ -88,11 +88,7 @@ function main() {
     console.log(`\n${violations} operation(s) write something their purpose forbids.`)
 }
 
-// `import.meta.main` is a Deno/Bun extension the TypeScript DOM lib does not
-// declare, and this package is type-checked by both. The cast keeps the guard
-// without pulling in a runtime-specific type reference.
-//
-// WITHOUT IT, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one
+// WITHOUT THIS GUARD, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one
 // exported helper opened a database connection, ran the command's SQL and called
 // process.exit() — against whatever `discover()` found, which on a developer
 // machine is their own working database. It was invisible locally because that
@@ -100,4 +96,4 @@ function main() {
 // nothing, `new Client('')` falls back to pg's default host — the literal string
 // "base" — and the resolver failure surfaced as an unattributed rejection that
 // named an innocent test file.
-if ((import.meta as { main?: boolean }).main) main()
+if (isEntrypoint(import.meta.url)) main()

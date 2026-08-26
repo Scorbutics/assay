@@ -50,6 +50,8 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const sizeOf = (p: string) => { try { return readFileSync(p, 'utf8').length } catch { return 0 } }
 const sliceFrom = (p: string, at: number) => { try { return readFileSync(p, 'utf8').slice(at) } catch { return '' } }
 
+import { isEntrypoint } from '../lib/paths.ts'
+
 async function main() {
     const args = process.argv.slice(2)
     const at = (f: string, d: string) => { const i = args.indexOf(f); return i === -1 ? d : args[i + 1] }
@@ -148,11 +150,7 @@ async function main() {
     process.exit(failed.length ? 1 : 0)
 }
 
-// `import.meta.main` is a Deno/Bun extension the TypeScript DOM lib does not
-// declare, and this package is type-checked by both. The cast keeps the guard
-// without pulling in a runtime-specific type reference.
-//
-// WITHOUT IT, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one
+// WITHOUT THIS GUARD, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one
 // exported helper opened a database connection, ran the command's SQL and called
 // process.exit() — against whatever `discover()` found, which on a developer
 // machine is their own working database. It was invisible locally because that
@@ -160,4 +158,4 @@ async function main() {
 // nothing, `new Client('')` falls back to pg's default host — the literal string
 // "base" — and the resolver failure surfaced as an unattributed rejection that
 // named an innocent test file.
-if ((import.meta as { main?: boolean }).main) main()
+if (isEntrypoint(import.meta.url)) main()

@@ -186,6 +186,8 @@ function diffLines(before: Declaration | undefined, after: Declaration): string[
     return out
 }
 
+import { isEntrypoint } from '../lib/paths.ts'
+
 function main() {
     const args = process.argv.slice(2)
     const write = args.includes('--write')
@@ -263,7 +265,5 @@ function main() {
     console.log(`\nWrote ${outPath}. Review the diff before committing — it is the review surface.`)
 }
 
-// `import.meta.main` is a Deno/Bun extension the TypeScript DOM lib does not
-// declare, and this package is type-checked by both. The cast keeps the guard
-// without pulling in a runtime-specific type reference.
-if ((import.meta as { main?: boolean }).main) main()
+// WITHOUT THIS GUARD, IMPORTING THIS MODULE RUNS THE COMMAND — see isEntrypoint.
+if (isEntrypoint(import.meta.url)) main()

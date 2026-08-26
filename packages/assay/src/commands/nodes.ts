@@ -13,7 +13,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { projectRoot } from '../lib/paths.ts'
+import { projectRoot, isEntrypoint } from '../lib/paths.ts'
 
 const ROOT = projectRoot()
 const SHAPES = join(ROOT, '.assay/shapes')
@@ -139,7 +139,5 @@ function main() {
     process.exit(broken.length ? 1 : 0)
 }
 
-// `import.meta.main` is a Deno/Bun extension the TypeScript DOM lib does not
-// declare, and this package is type-checked by both. The cast keeps the guard
-// without pulling in a runtime-specific type reference.
-if ((import.meta as { main?: boolean }).main) main()
+// WITHOUT THIS GUARD, IMPORTING THIS MODULE RUNS THE COMMAND — see isEntrypoint.
+if (isEntrypoint(import.meta.url)) main()

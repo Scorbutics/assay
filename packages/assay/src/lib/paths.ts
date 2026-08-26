@@ -16,7 +16,7 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
 /** The directory whose presence identifies a project using assay. */
@@ -77,4 +77,28 @@ export function commandPath(name: string): string {
     // type-checking with TS2345 and `deno publish` refuses the package. A string
     // is accepted by both and means the same thing.
     return fileURLToPath(new URL(`../commands/${name}.ts`, import.meta.url).href)
+}
+
+/**
+ * Whether THIS module is the one the process was started with.
+ *
+ * Every command file is both a library (its helpers are imported by tests) and a
+ * script, so each needs to know which it is being used as. `import.meta.main`
+ * looks like the answer and is not reliable here: these files are also spawned
+ * through `node_modules/@scorbutics/assay`, a symlink into the workspace, and a
+ * runtime that resolves the entrypoint to its realpath while leaving
+ * `import.meta.url` on the symlinked path reports `main: false` for a file it is
+ * literally executing. That happened on CI and not locally, which is the worst
+ * shape a guard can have.
+ *
+ * Comparing realpaths answers the question the guard is actually asking.
+ */
+export function isEntrypoint(moduleUrl: string): boolean {
+    const entry = process.argv[1]
+    if (!entry) return false
+    try {
+        return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(entry)
+    } catch {
+        return false
+    }
 }
