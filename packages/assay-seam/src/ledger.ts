@@ -75,7 +75,10 @@
  *    `unattributed`, and the report counts those out loud.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks'
+// Through the package's OWN name, not a relative path: the './async-context' export carries a
+// `browser` condition, and a condition is resolved from the SPECIFIER — which survives this package
+// being reached through a symlink, where a path-based `browser` field mapping does not.
+import { AsyncLocalStorage } from '@scorbutics/assay-seam/async-context'
 
 /**
  * The seam is OPT-IN: it records only when `ASSAY_LEDGER` is on.

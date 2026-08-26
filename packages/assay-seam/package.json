@@ -8,7 +8,14 @@
   "exports": {
     ".": "./src/ledger.ts",
     "./shape": "./src/shape.ts",
-    "./template": "./src/template.ts"
+    "./template": "./src/template.ts",
+    "./async-context": {
+      "browser": "./src/async-context.browser.ts",
+      "default": "./src/async-context.ts"
+    }
+  },
+  "browser": {
+    "./src/async-context.ts": "./src/async-context.browser.ts"
   },
   "files": [
     "src",

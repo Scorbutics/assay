@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/ledger.ts",
     "./shape": "./src/shape.ts",
-    "./template": "./src/template.ts"
+    "./template": "./src/template.ts",
+    "./async-context": "./src/async-context.ts"
   },
   "publish": {
     "exclude": [
