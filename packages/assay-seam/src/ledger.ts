@@ -460,7 +460,23 @@ export function installOutboundSeam(ignoreHost?: string): void {
     if (outboundInstalled || (!ledgerEnabled() && !interceptEnabled())) return
     outboundInstalled = true
     const ignore = new Set<string>()
-    for (const raw of [ignoreHost, (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env.get('SUPABASE_URL')]) {
+    // BOTH RUNTIMES. This read was Deno-only, so outside an Edge Function the
+    // seam did not know its own database's host and recorded every PostgREST
+    // and GoTrue request as an outbound call to a third party — the app's own
+    // traffic, counted twice: once as a statement by the DB seam and once as a
+    // `call` here. `check` treats an undeclared call as an ERROR, so a Next
+    // route with the ledger on failed the gate for reaching the service it is
+    // supposed to reach. Found the first time Next routes were driven in CI.
+    //
+    // NEXT_PUBLIC_SUPABASE_URL as well as SUPABASE_URL: a Next server has the
+    // former and not always the latter, and getting this wrong fails open —
+    // toward recording, which is the direction that produces the false finding.
+    const env = (globalThis as {
+        Deno?: { env: { get(k: string): string | undefined } }
+        process?: { env?: Record<string, string | undefined> }
+    })
+    const fromEnv = (key: string) => env.Deno?.env?.get?.(key) ?? env.process?.env?.[key]
+    for (const raw of [ignoreHost, fromEnv('SUPABASE_URL'), fromEnv('NEXT_PUBLIC_SUPABASE_URL')]) {
         if (!raw) continue
         try { ignore.add(new URL(raw).host) } catch { /* not a URL */ }
     }
