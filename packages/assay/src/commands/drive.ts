@@ -22,12 +22,20 @@
 
 import { Buffer } from 'node:buffer'
 import { discover } from '../lib/db.ts'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { Client } from 'pg'
 import { requireScratch } from '../lib/guard.ts'
 
 const FUNCTIONS = 'http://127.0.0.1:54321/functions/v1'
 const AUTH = 'http://127.0.0.1:54321/auth/v1'
+/**
+ * The Next server, for operations that are ROUTES rather than Edge Functions.
+ *
+ * Declaring a Next route and never driving it means its declaration is never
+ * checked: `check` reports it as declared-but-not-observed, which is a NOTE and
+ * never fails. Half this project's declared operations were in that state.
+ */
+const NEXT = process.env.ASSAY_NEXT_URL ?? 'http://127.0.0.1:3000'
 
 /**
  * Mints a fresh JWT rather than reading one off disk.
@@ -51,6 +59,22 @@ async function mintToken(email: string, password: string, anon: string): Promise
         throw new Error(`login failed for ${email}: ${json.msg ?? json.error_description ?? JSON.stringify(json).slice(0, 120)}`)
     }
     return json.access_token
+}
+
+/**
+ * A Next route probe. Unlike an Edge Function — whose name IS its path — a route
+ * has both a declaration key (`app/api/x/route.ts`, what the ledger attributes
+ * to) and a URL, so the probe carries the URL and the method explicitly.
+ */
+interface NextProbe {
+    name?: string
+    /** Default POST; GET routes carry no body. */
+    method?: string
+    /** URL path, e.g. `/api/member/profile`. */
+    path: string
+    auth: string
+    body?: unknown
+    setup?: Array<{ operation: string; auth: string; body?: unknown; repeat?: number }>
 }
 
 interface Probe {
@@ -110,6 +134,9 @@ async function main() {
     const at = (f: string, d: string) => { const i = args.indexOf(f); return i === -1 ? d : args[i + 1] }
     const all = args.includes('--all')
     const logPath = at('--log', '/tmp/fserve.log')
+    // The Next server writes its ledger to its own stdout, so the corpus for a
+    // route is sliced from a different file than an Edge Function's.
+    const nextLogPath = at('--next-log', '/tmp/next.log')
     const outPath = at('--out', '.assay/corpus.log')
     const target = args.filter((a, i) => !a.startsWith('--') && !args[i - 1]?.startsWith('--'))[0]
     const dbUrl = at('--db', '') || discover().url || ''
@@ -143,8 +170,11 @@ async function main() {
     const entries = Object.entries(probes.edge as Record<string, Probe | Probe[]>)
         .filter(([op]) => all || op === target)
     if (!entries.length) {
-        console.error(`No probe for "${target}". Known: ${Object.keys(probes.edge).join(', ')}`)
-        process.exit(2)
+        const known = [...Object.keys(probes.edge ?? {}), ...Object.keys(probes.next ?? {})]
+        if (!known.includes(target)) {
+            console.error(`No probe for "${target}". Known: ${known.join(', ')}`)
+            process.exit(2)
+        }
     }
 
     let corpus = ''
@@ -184,6 +214,62 @@ async function main() {
             const lines = slice.split('\n').filter(l => l.includes('@ledger'))
             corpus += lines.join('\n') + (lines.length ? '\n' : '')
             console.log(`  ${String(status).padEnd(5)} ${op}${probe.name ? ` [${probe.name}]` : ''}  → ${lines.length} statement(s)`)
+        }
+    }
+
+    // ---- Next routes -------------------------------------------------------
+    //
+    // Same slice-the-log technique, a different server. Attribution is the catch:
+    // a route that does not pass an explicit operation label relies on
+    // `operationFromStack()`, which returns 'unattributed' under
+    // NODE_ENV=production — so a corpus driven against `next build && next start`
+    // gates nothing, however many statements it contains. Drive `next dev`.
+    const nextProbes = Object.entries((probes.next ?? {}) as Record<string, NextProbe | NextProbe[]>)
+        .filter(([op]) => all || op === target)
+    if (nextProbes.length && !existsSync(nextLogPath)) {
+        console.error(`✗ ${nextProbes.length} Next probe(s) declared and no log at ${nextLogPath}.`)
+        console.error('  Start the app with the seam on and its output captured, then pass --next-log:')
+        console.error('    ASSAY_LEDGER=on bun run dev > /tmp/next.log 2>&1 &')
+        process.exit(2)
+    }
+    for (const [op, spec] of nextProbes) {
+        for (const probe of (Array.isArray(spec) ? spec : [spec])) {
+            for (const step of probe.setup ?? []) {
+                const stepBody = JSON.parse(await resolvePlaceholders(JSON.stringify(step.body ?? {}), selfId, dbUrl))
+                for (let i = 0; i < (step.repeat ?? 1); i++) {
+                    try {
+                        await fetch(`${FUNCTIONS}/${step.operation}`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${tokens[step.auth]}`, apikey: anon, 'Content-Type': 'application/json' },
+                            body: JSON.stringify(stepBody),
+                            signal: AbortSignal.timeout(180_000),
+                        })
+                    } catch { /* reported by the probe reaching less */ }
+                }
+                console.log(`    setup: ${step.operation}${step.repeat ? ` x${step.repeat}` : ''}`)
+            }
+            const method = (probe.method ?? 'POST').toUpperCase()
+            const body = probe.body === undefined
+                ? undefined
+                : JSON.parse(await resolvePlaceholders(JSON.stringify(probe.body), selfId, dbUrl))
+            const before = sizeOf(nextLogPath)
+            let status: number | string
+            try {
+                const res = await fetch(`${NEXT}${probe.path}`, {
+                    method,
+                    headers: { Authorization: `Bearer ${tokens[probe.auth]}`, 'Content-Type': 'application/json' },
+                    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+                    signal: AbortSignal.timeout(180_000),
+                })
+                status = res.status
+            } catch (e) { status = `failed: ${(e as Error).message}` }
+            // `next dev` compiles a route on its first request, and the compile
+            // output lands in the same stream; give it room before slicing.
+            await sleep(1200)
+            const lines = readFileSync(nextLogPath, 'utf8').slice(before)
+                .split('\n').filter(l => l.includes('@ledger'))
+            corpus += lines.join('\n') + (lines.length ? '\n' : '')
+            console.log(`  ${String(status).padEnd(5)} ${method} ${probe.path}${probe.name ? ` [${probe.name}]` : ''}  → ${lines.length} statement(s)`)
         }
     }
 

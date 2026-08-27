@@ -63,7 +63,15 @@ async function main() {
 
     const results: Array<{ name: string; ok: boolean }> = []
 
-    const drive = step('drive every probe', [commandPath('drive'), '--all', '--out', corpus])
+    // Forwarded, not swallowed: a Next probe cannot be driven without the log
+    // its statements land in, and a verify that silently drops the flag would
+    // drive the routes and capture nothing from them — which reads as
+    // 'declared but not observed', a NOTE that never fails.
+    const nextLog = at('--next-log', '')
+    const drive = step('drive every probe', [
+        commandPath('drive'), '--all', '--out', corpus,
+        ...(nextLog ? ['--next-log', nextLog] : []),
+    ])
     results.push({ name: 'drive', ok: drive.ok })
     if (!drive.ok) {
         console.error('\nassay: driving failed — the gate below would be meaningless, so stopping.')
