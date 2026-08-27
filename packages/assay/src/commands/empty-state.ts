@@ -30,14 +30,41 @@
  */
 
 import { Buffer } from 'node:buffer'
+import { Client } from 'pg'
 import { discover } from '../lib/db.ts'
+import { mintToken } from './drive.ts'
 import { requireScratch } from '../lib/guard.ts'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { loadRpcMap, parse, printNotCovered, summarise } from '../lib/corpus.ts'
 import { loadDeclarations } from './declare.ts'
 
 const FUNCTIONS = 'http://127.0.0.1:54321/functions/v1'
 const NEXT = 'http://localhost:3000'
+
+interface NextProbe {
+    name?: string
+    method?: string
+    path: string
+    auth: string
+    body?: unknown
+    /**
+     * What "a minimal database" means for THIS operation.
+     *
+     * `asNewMember` drives the probe as an account that has JUST SIGNED UP: a
+     * real auth user with no row in the given table. For a route whose job is to
+     * create that row, that is the minimal state — and a seeded database never
+     * has such an account, which is why the branch that broke profile completion
+     * for a month was undrivable: the route took its UPDATE path every time.
+     *
+     * The first attempt deleted the DRIVING account's row instead, and the
+     * database refused: an established member is referenced from half a dozen
+     * tables (member_feature_grants.granted_by among them). That is the right
+     * refusal — the state being asked for was not "a new member" but "an old
+     * member with their history detached", which no user is ever in.
+     */
+    emptyState?: { asNewMember?: { table: string } }
+}
 
 interface Result {
     operation: string
@@ -46,11 +73,89 @@ interface Result {
     writes: string[]
 }
 
+/**
+ * An auth user that exists and has no row in `table` — a member mid-signup.
+ *
+ * Created rather than borrowed, because the state cannot be reached by removing
+ * anything: an established member is referenced from several tables and the
+ * database rightly refuses to detach them. A brand-new user's row has no
+ * dependents, so deleting the one the signup trigger creates is clean.
+ *
+ * The email is DETERMINISTIC and cleaned up first, so a sweep interrupted
+ * halfway does not poison the next one with a leftover account.
+ */
+async function asNewMember(
+    dbUrl: string, table: string, anon: string,
+): Promise<{ token: string; id: string; cleanup: () => Promise<void> }> {
+    const email = 'assay-empty-state@example.invalid'
+    const password = 'Assay.EmptyState.1'
+    const client = new Client({ connectionString: dbUrl })
+    await client.connect()
+    let id: string
+    try {
+        await client.query('delete from auth.users where email = $1', [email])
+        const { rows } = await client.query(
+            // The token columns are set to '' rather than left NULL, and that is
+            // not cosmetic: GoTrue's schema query fails on NULLs there and the
+            // login comes back "Database error querying schema", which reads as
+            // a broken database rather than a malformed row. The seeded accounts
+            // carry '' too — that is what made the difference visible.
+            `insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
+                                     email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+                                     created_at, updated_at, is_sso_user,
+                                     confirmation_token, recovery_token,
+                                     email_change, email_change_token_new)
+             values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
+                     'authenticated', $1, crypt($2, gen_salt('bf')), now(),
+                     '{"provider":"email","providers":["email"]}', '{}'::jsonb, now(), now(), false,
+                     '', '', '', '')
+             returning id`,
+            [email, password],
+        )
+        id = rows[0].id as string
+        // The signup trigger creates the row this probe must find MISSING. It is
+        // seconds old and referenced by nothing, so removing it is safe — which
+        // is exactly what is not true of an established member.
+        await client.query(`delete from public."${table}" where id = $1`, [id])
+    } finally { await client.end() }
+
+    const token = await mintToken(email, password, anon)
+    return {
+        token, id,
+        cleanup: async () => {
+            const c = new Client({ connectionString: dbUrl })
+            await c.connect()
+            try { await c.query('delete from auth.users where email = $1', [email]) }
+            finally { await c.end() }
+        },
+    }
+}
+
+/** A well-formed id no row has. The empty-state case for anything keyed by one. */
+const ABSENT_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * Probe placeholders, resolved for a MINIMAL database.
+ *
+ * `drive` resolves REAL_TASK and friends against the data; here there is none by
+ * definition, so they become a valid id that is not there — which IS the state
+ * under test. Left unresolved they went out as the literal string, and two routes
+ * answered 500 to `invalid input syntax for type uuid`: a finding about malformed
+ * input, dressed as a finding about an empty database.
+ */
+function resolveForEmptyState(body: string, subject: string): string {
+    return body
+        .replace(/"SELF"/g, JSON.stringify(subject))
+        .replace(/"(REAL_[A-Z_]+|OTHER_MEMBER)"/g, JSON.stringify(ABSENT_ID))
+}
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const sizeOf = (p: string) => { try { return readFileSync(p, 'utf8').length } catch { return 0 } }
 const sliceFrom = (p: string, at: number) => { try { return readFileSync(p, 'utf8').slice(at) } catch { return '' } }
 
-import { isEntrypoint } from '../lib/paths.ts'
+import { isEntrypoint, projectRoot } from '../lib/paths.ts'
+
+const ROOT = projectRoot()
 
 async function main() {
     const args = process.argv.slice(2)
@@ -58,18 +163,30 @@ async function main() {
     const asJson = args.includes('--json')
     const fnLog = at('--log', '/tmp/fserve.log')
     const nextLog = at('--next-log', '/tmp/next.log')
-    await requireScratch(at('--db', '') || discover().url || '',
-        'run the empty-state sweep')
+    const dbUrl = at('--db', '') || discover().url || ''
+    await requireScratch(dbUrl, 'run the empty-state sweep')
 
     const probes = JSON.parse(readFileSync(at('--probes', '.assay/probes.json'), 'utf8'))
     const declarations = loadDeclarations(at('--declarations', '.assay/operations.json'))
     const { map: rpcMap, loaded } = loadRpcMap(at('--rpc-map', '.assay/rpc-writes.json'))
     if (!loaded) { console.error('✗ No RPC write map — rpc writes would be invisible.'); process.exit(2) }
 
-    const anon = readFileSync('/tmp/anon.key', 'utf8').trim()
+    const anon = process.env.ASSAY_ANON_KEY ?? readFileSync('/tmp/anon.key', 'utf8').trim()
+    // MINTED, not read from a file. This used to read /tmp/admin.jwt, which
+    // nothing in the project ever wrote — so the sweep died on ENOENT before its
+    // first request, and had done since it was written. Same reason `drive`
+    // mints: a cached token expires into a 401, and a 401 is a PASS here, so a
+    // stale one would turn the whole sweep green.
+    const email = process.env.ASSAY_ADMIN_EMAIL
+    const password = process.env.ASSAY_ADMIN_PASSWORD
+    if (!email || !password) {
+        console.error('✗ Set ASSAY_ADMIN_EMAIL and ASSAY_ADMIN_PASSWORD (a LOCAL account).')
+        process.exit(2)
+    }
+    const adminJwt = await mintToken(email, password, anon)
     const tokens: Record<string, string> = {
-        admin: readFileSync('/tmp/admin.jwt', 'utf8').trim(),
-        service: readFileSync('/tmp/sr.key', 'utf8').trim(),
+        admin: adminJwt,
+        service: process.env.ASSAY_SERVICE_KEY ?? readFileSync('/tmp/sr.key', 'utf8').trim(),
     }
     // The seeded members are not loginable, so a member-scoped probe runs as the
     // admin — who is also a member. Recorded here rather than left implicit,
@@ -98,7 +215,7 @@ async function main() {
     // ledger-drive runs them all.
     for (const [fn, spec] of Object.entries(probes.edge as Record<string, any>)) {
         const probe = (Array.isArray(spec) ? spec[0] : spec) as { auth: string; body: unknown }
-        const body = JSON.parse(JSON.stringify(probe.body).replace(/"SELF"/g, JSON.stringify(selfId)))
+        const body = JSON.parse(resolveForEmptyState(JSON.stringify(probe.body), selfId))
         const before = sizeOf(fnLog)
         let status: number | string
         try {
@@ -114,28 +231,95 @@ async function main() {
         results.push(check(fn, status, sliceFrom(fnLog, before)))
     }
 
-    for (const [operation, probe] of Object.entries(probes.next as Record<string, { auth: string; path: string }>)) {
+    // Next routes. This loop existed and had never run: it treated each entry as
+    // ONE probe rather than the list `drive` reads, and issued a bodyless GET —
+    // so every POST-only route would have answered 405, which is a 4xx, which is
+    // a PASS. It would have reported success for never having called anything.
+    //
+    // Ordered so that `withoutOwnRow` probes go LAST. They delete a row and let
+    // the operation recreate it, and the row they delete is the driving account's
+    // own — which carries the admin role every other probe authenticates with.
+    const nextEntries = Object.entries(probes.next ?? {} as Record<string, NextProbe | NextProbe[]>)
+        .map(([operation, spec]) => [operation, (Array.isArray(spec) ? spec[0] : spec) as NextProbe] as const)
+        .sort((a, b) => Number(!!a[1].emptyState) - Number(!!b[1].emptyState))
+
+    for (const [operation, probe] of nextEntries) {
+        // THE MINIMAL DATABASE FOR THIS OPERATION. "No accumulated rows" is not
+        // one state — it is per-operation, and for a route whose job is to create
+        // the caller's row it means that row is ABSENT. A seeded database always
+        // has it, which is exactly why the branch that broke profile completion
+        // for a month could not be driven: the route took UPDATE every time.
+        let restore: (() => Promise<void>) | null = null
+        let asUser = tokens[probe.auth]
+        let subject = selfId
+        if (probe.emptyState?.asNewMember) {
+            const fresh = await asNewMember(dbUrl, probe.emptyState.asNewMember.table, anon)
+            asUser = fresh.token
+            subject = fresh.id
+            restore = fresh.cleanup
+        }
         const before = sizeOf(nextLog)
         let status: number | string
         try {
+            const body = probe.body === undefined
+                ? undefined
+                : JSON.parse(resolveForEmptyState(JSON.stringify(probe.body), subject))
             const res = await fetch(`${NEXT}${probe.path}`, {
-                headers: { Authorization: `Bearer ${tokens[probe.auth]}` },
+                method: (probe.method ?? 'POST').toUpperCase(),
+                headers: { Authorization: `Bearer ${tokens[probe.auth]}`, 'Content-Type': 'application/json' },
+                ...(body === undefined ? {} : { body: JSON.stringify(body) }),
                 signal: AbortSignal.timeout(120_000),
             })
             status = res.status
         } catch (e) { status = `request failed: ${(e as Error).message}` }
         await sleep(300)
         results.push(check(operation, status, sliceFrom(nextLog, before)))
+        // Cleaned up even on failure: the sweep is single-shot, but a leftover
+        // account would poison the NEXT run, whose whole premise is a database
+        // in a known minimal state.
+        if (restore) await restore()
     }
 
+    // THE RATCHET, for the same reason the invariant baseline and the
+    // unattributed list have one: this sweep is TOTAL over operations, so on any
+    // codebase that did not grow up with it the first run is a wall rather than a
+    // gate — and a check that is red on day one is ignored by day two. Known
+    // failures are recorded and tolerated; a NEW one fails. The debt is named and
+    // can only shrink.
+    //
+    // Keyed by operation AND failure text, so an operation that starts failing
+    // for a DIFFERENT reason is a new finding rather than a covered one.
+    const baselinePath = at('--baseline', '.assay/empty-state-baseline.json')
+    let baseline = new Set<string>()
+    try {
+        baseline = new Set((JSON.parse(readFileSync(join(ROOT, baselinePath), 'utf8')) as
+            { known?: string[] }).known ?? [])
+    } catch { /* absent: everything is new, which is the correct first answer */ }
+    const keyOf = (r: Result, failure: string) => `${r.operation} :: ${failure}`
+
     const failed = results.filter(r => r.failures.length)
+    const keys = failed.flatMap(r => r.failures.map(f => keyOf(r, f)))
+    const fresh = keys.filter(k => !baseline.has(k))
+    const fixed = [...baseline].filter(k => !keys.includes(k))
+
+    if (args.includes('--accept')) {
+        writeFileSync(join(ROOT, baselinePath), JSON.stringify({
+            _comment:
+                'Operations that do not yet survive a minimal database. A NEW failure fails the ' +
+                'sweep; these are tolerated. Each line is one operation and one reason — an ' +
+                'operation failing for a different reason is a new finding, not a covered one.',
+            known: keys.sort(),
+        }, null, 2) + '\n')
+        console.log(`Baselined ${keys.length} empty-state failure(s) → ${baselinePath}`)
+        process.exit(0)
+    }
     const declaredOps = Object.keys(declarations.operations)
     const probed = new Set(results.map(r => r.operation))
     const unprobed = declaredOps.filter(o => !probed.has(o))
 
     if (asJson) {
-        console.log(JSON.stringify({ results, unprobed, failed: failed.length }, null, 2))
-        process.exit(failed.length ? 1 : 0)
+        console.log(JSON.stringify({ results, unprobed, failed: failed.length, fresh, fixed }, null, 2))
+        process.exit(fresh.length ? 1 : 0)
     }
 
     for (const r of results) {
@@ -144,10 +328,20 @@ async function main() {
         for (const f of r.failures) console.log(`      ${f}`)
     }
     console.log(`\n${results.length - failed.length}/${results.length} operations survive a minimal database.`)
-    if (!failed.length) printNotCovered()
+    if (fixed.length) {
+        console.log(`\n✓ ${fixed.length} baselined failure(s) are gone — remove them with --accept:`)
+        for (const k of fixed) console.log(`    ${k}`)
+    }
+    if (fresh.length) {
+        console.log(`\n✗ ${fresh.length} NEW failure(s), not in ${baselinePath}:`)
+        for (const k of fresh) console.log(`    ${k}`)
+    } else if (failed.length) {
+        console.log(`\n${failed.length} operation(s) failing, all baselined. The list can only shrink.`)
+    }
+    if (!fresh.length && !failed.length) printNotCovered()
     // The remainder. An unprobed operation is unproven, not passing.
     if (unprobed.length) console.log(`· ${unprobed.length} declared operation(s) have no probe — unproven: ${unprobed.join(', ')}`)
-    process.exit(failed.length ? 1 : 0)
+    process.exit(fresh.length ? 1 : 0)
 }
 
 // WITHOUT THIS GUARD, IMPORTING THIS MODULE RUNS THE COMMAND. A unit test importing one

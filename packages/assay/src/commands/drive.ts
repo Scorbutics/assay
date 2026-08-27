@@ -48,7 +48,7 @@ const NEXT = process.env.ASSAY_NEXT_URL ?? 'http://127.0.0.1:3000'
  * Local stack only: the captcha secret is Cloudflare's always-pass test key, so
  * any token string satisfies it.
  */
-async function mintToken(email: string, password: string, anon: string): Promise<string> {
+export async function mintToken(email: string, password: string, anon: string): Promise<string> {
     const res = await fetch(`${AUTH}/token?grant_type=password`, {
         method: 'POST',
         headers: { apikey: anon, 'Content-Type': 'application/json' },
