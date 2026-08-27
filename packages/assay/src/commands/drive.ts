@@ -102,16 +102,29 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
  * Hardcoding row ids into probes.json makes every probe stale the moment anyone
  * runs `supabase db reset` — and a probe that 404s looks like a passing 4xx, so
  * the rot is silent. Placeholders are looked up instead:
- *   SELF       the authenticated caller's member id
- *   REAL_TASK  a weekly_task belonging to that member
- *   REAL_MSM   a memberSocialMediaId targeted by that task
+ *   SELF          the authenticated caller's member id
+ *   OTHER_MEMBER  any OTHER member — for a probe whose whole point is acting on
+ *                 someone who is not you. Without it, a self-referential probe
+ *                 either violates a constraint or, worse, does not: driving an
+ *                 exclusion of SELF by SELF wrote a row `no-self-exclusion` says
+ *                 can never exist, and only escaped notice because the next
+ *                 probe removed it.
+ *   REAL_TASK     a weekly_task belonging to that member
+ *   REAL_MSM      a memberSocialMediaId targeted by that task
  */
 async function resolvePlaceholders(body: string, selfId: string, dbUrl: string): Promise<string> {
     let out = body.replace(/"SELF"/g, JSON.stringify(selfId))
-    if (!out.includes('REAL_')) return out
+    if (!out.includes('REAL_') && !out.includes('OTHER_MEMBER')) return out
     const client = new Client(dbUrl)
     await client.connect()
     try {
+        if (out.includes('OTHER_MEMBER')) {
+            const { rows: others } = await client.query(
+                `select id from public.members where id <> $1 order by id limit 1`, [selfId])
+            out = out.replace(/"OTHER_MEMBER"/g,
+                JSON.stringify(others[0]?.id ?? '00000000-0000-0000-0000-000000000000'))
+            if (!out.includes('REAL_')) return out
+        }
         const { rows } = await client.query(
             `select id, task_data from public.weekly_tasks where member_id = $1 order by created_at desc limit 1`, [selfId])
         const task = rows[0]
