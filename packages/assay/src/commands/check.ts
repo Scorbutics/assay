@@ -102,6 +102,36 @@ function main() {
             continue
         }
 
+        // A statement the database REFUSED on privilege or policy grounds.
+        //
+        // Not the same as any other errored statement, and this is the one case
+        // where the distinction is the whole point. A constraint violation is
+        // data — a driven probe legitimately hits one, and failing on it would
+        // punish coverage. A privilege refusal is STRUCTURAL: the operation is
+        // not allowed to do what it was written to do, and no amount of data
+        // makes it work. `permission denied for table members` broke profile
+        // completion for a month and the admin activate button for longer.
+        //
+        // Until this existed, a corpus containing that exact line passed the
+        // gate with `0 error(s)` — verified by reintroducing the bug. Everything
+        // else about the run was green: the route answered, the statement was
+        // recorded, the declaration matched, and `report` printed the refusal
+        // where nothing was reading.
+        //
+        // Errored statements are excluded from the read/write SETS (a rejected
+        // statement touched nothing), so this reads e.errors, which keeps them.
+        for (const error of s.errors) {
+            if (!/permission denied|violates row-level security|must be owner of/i.test(error)) continue
+            findings.push({
+                severity: 'error', operation: s.operation, kind: 'statement-denied',
+                detail: `the database refused a statement: ${error}`,
+                remedy:
+                    'A privilege or policy refusal is a deploy-time fault, not a data one. Check the ' +
+                    'column grants for the columns this statement NAMES — Postgres checks the grant ' +
+                    'against the column list, not the values, so a defaulted column still needs it.',
+            })
+        }
+
         const declared: Declaration | undefined = declarations.operations[s.operation]
         if (!declared) {
             findings.push({
