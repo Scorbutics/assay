@@ -132,10 +132,52 @@ if (cmd === 'status') {
         '-c', `DROP DATABASE IF EXISTS ${SCRATCH}`], { encoding: 'utf8' })
     execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER, 'psql', '-U', 'supabase_admin', '-d', REAL,
         '-c', `CREATE DATABASE ${SCRATCH}`], { encoding: 'utf8' })
+    // CUSTOM FORMAT AND pg_restore, not `pg_dump | psql`.
+    //
+    // The pipe version lost data silently and it took three separate
+    // investigations to notice. When a COPY fails — here because the dump
+    // references a `cron` schema the new database does not have — psql drops out
+    // of COPY mode and parses the remaining DATA ROWS AS SQL. The errors then
+    // read `syntax error at or near "succeeded"`, which is a value from somebody's
+    // table, and the rest of that table is gone. Constraints that reference the
+    // missing rows fail to validate next, so the clone ends up without foreign
+    // keys — which is why PostgREST answered "Could not find a relationship
+    // between 'members' and 'directory_sectors'" and three operations looked
+    // broken on a developer machine while passing in CI.
+    //
+    // pg_restore has no such failure mode: data is restored through its own
+    // channel, so one failing object cannot corrupt the parse of the next.
     execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER, 'bash', '-c',
-        `pg_dump -U supabase_admin -d ${REAL} | psql -U supabase_admin -d ${SCRATCH} -v ON_ERROR_STOP=0`],
+        `pg_dump -Fc -U supabase_admin -d ${REAL} -f /tmp/assay-clone.dump && ` +
+        // Ownership and privileges are PRESERVED. --no-owner/--no-privileges are
+        // for restoring onto a server whose roles differ; here it is the same
+        // server, and stripping them left `postgres` without CREATE on public,
+        // so the disposability marker could not be written and every command
+        // refused to run against the clone.
+        `pg_restore -U supabase_admin -d ${SCRATCH} /tmp/assay-clone.dump ` +
+        `2>/tmp/assay-clone.err; true`],
         { encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'] })
+
+    // WHAT DID NOT COME ACROSS. A clone is only useful if it is the same
+    // database; one that quietly is not produces findings about itself. Reported
+    // rather than assumed, because "it printed a member count" is exactly what
+    // made the lossy version look fine.
+    const countIn = (db: string, sql: string) => Number(psql(db, sql))
+    const tables = 'select count(*) from information_schema.tables where table_schema = \'public\''
+    const fkeys = 'select count(*) from pg_constraint where contype = \'f\''
+    const drift: string[] = []
+    for (const [what, sql] of [['tables', tables], ['foreign keys', fkeys]] as const) {
+        const before = countIn(REAL, sql), after = countIn(SCRATCH, sql)
+        if (before !== after) drift.push(`${what}: ${before} → ${after}`)
+    }
     console.log(`  members=${psql(SCRATCH, 'select count(*) from public.members')} auth.users=${psql(SCRATCH, 'select count(*) from auth.users')}`)
+    if (drift.length) {
+        console.error(`\n✗ The clone is NOT a faithful copy — ${drift.join(', ')}.`)
+        console.error('  Driving against it would produce findings about the clone. Restore errors:')
+        console.error(sh('docker', ['exec', DB_CONTAINER, 'sh', '-c',
+            'grep -oE "^pg_restore: error: .{0,80}" /tmp/assay-clone.err | sort | uniq -c | sort -rn | head -5 || true']))
+        process.exit(1)
+    }
     repoint(SCRATCH)
     writeFileSync(STATE, JSON.stringify({ database: SCRATCH }, null, 2) + '\n')
     console.log(`PostgREST and GoTrue → ${SCRATCH}. Mark it, then drive:`)
