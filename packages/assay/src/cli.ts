@@ -35,6 +35,7 @@ const SUMMARY: Record<string, string> = {
     'expect':      'coherence: expected vs observed vs static',
     'static':      'the static footprint of each operation',
     'nodes':       'seam-node registry and how much of it is hand-written',
+    'unattributed': 'database access that belongs to no operation (static, whole repo)',
     'backfill':    'derive shapes from a column that already exists',
     'capture':     'file captured shapes from a runtime log against nodes',
     'intercept':   'serialise intercept policy for the runtime (store/replay)',
