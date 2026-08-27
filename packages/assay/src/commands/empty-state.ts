@@ -54,8 +54,15 @@ interface NextProbe {
      * `asNewMember` drives the probe as an account that has JUST SIGNED UP: a
      * real auth user with no row in the given table. For a route whose job is to
      * create that row, that is the minimal state — and a seeded database never
-     * has such an account, which is why the branch that broke profile completion
-     * for a month was undrivable: the route took its UPDATE path every time.
+     * has such an account, so the branch stays undrivable without this.
+     *
+     * `metadata` is what makes it a REAL path rather than a synthetic one. In
+     * the project this was built for, `handle_new_user` returns early without
+     * creating a member row whenever first_name / last_name / company are absent
+     * from the metadata — which is exactly what an INVITE carries, since it
+     * carries only the tier. So every invited member arrives at profile
+     * completion with no row. That is not a fallback anybody has to contrive; it
+     * is the whole invite flow, and it is what the outage actually broke.
      *
      * The first attempt deleted the DRIVING account's row instead, and the
      * database refused: an established member is referenced from half a dozen
@@ -63,7 +70,7 @@ interface NextProbe {
      * refusal — the state being asked for was not "a new member" but "an old
      * member with their history detached", which no user is ever in.
      */
-    emptyState?: { asNewMember?: { table: string } }
+    emptyState?: { asNewMember?: { table: string; metadata?: Record<string, unknown> } }
 }
 
 interface Result {
@@ -85,7 +92,7 @@ interface Result {
  * halfway does not poison the next one with a leftover account.
  */
 async function asNewMember(
-    dbUrl: string, table: string, anon: string,
+    dbUrl: string, table: string, anon: string, metadata: Record<string, unknown> = {},
 ): Promise<{ token: string; id: string; cleanup: () => Promise<void> }> {
     const email = 'assay-empty-state@example.invalid'
     const password = 'Assay.EmptyState.1'
@@ -107,10 +114,10 @@ async function asNewMember(
                                      email_change, email_change_token_new)
              values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
                      'authenticated', $1, crypt($2, gen_salt('bf')), now(),
-                     '{"provider":"email","providers":["email"]}', '{}'::jsonb, now(), now(), false,
+                     '{"provider":"email","providers":["email"]}', $3::jsonb, now(), now(), false,
                      '', '', '', '')
              returning id`,
-            [email, password],
+            [email, password, JSON.stringify(metadata)],
         )
         id = rows[0].id as string
         // The signup trigger creates the row this probe must find MISSING. It is
@@ -253,10 +260,18 @@ async function main() {
         let asUser = tokens[probe.auth]
         let subject = selfId
         if (probe.emptyState?.asNewMember) {
-            const fresh = await asNewMember(dbUrl, probe.emptyState.asNewMember.table, anon)
+            const fresh = await asNewMember(
+                dbUrl, probe.emptyState.asNewMember.table, anon,
+                probe.emptyState.asNewMember.metadata)
             asUser = fresh.token
             subject = fresh.id
             restore = fresh.cleanup
+            // Printed, because "which account did this actually run as" is the
+            // question a silent harness bug hides. This one computed the new
+            // member's token and then sent the driving account's — the variable
+            // was assigned and never read — so the route took its UPDATE branch
+            // and the sweep reported a pass for the branch it exists to reach.
+            console.log(`      as a new member: ${fresh.id}`)
         }
         const before = sizeOf(nextLog)
         let status: number | string
@@ -266,7 +281,7 @@ async function main() {
                 : JSON.parse(resolveForEmptyState(JSON.stringify(probe.body), subject))
             const res = await fetch(`${NEXT}${probe.path}`, {
                 method: (probe.method ?? 'POST').toUpperCase(),
-                headers: { Authorization: `Bearer ${tokens[probe.auth]}`, 'Content-Type': 'application/json' },
+                headers: { Authorization: `Bearer ${asUser}`, 'Content-Type': 'application/json' },
                 ...(body === undefined ? {} : { body: JSON.stringify(body) }),
                 signal: AbortSignal.timeout(120_000),
             })
