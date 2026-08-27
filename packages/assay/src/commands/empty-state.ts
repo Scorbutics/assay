@@ -31,7 +31,7 @@
 
 import { Buffer } from 'node:buffer'
 import { Client } from 'pg'
-import { discover } from '../lib/db.ts'
+import { discover, loadConfig } from '../lib/db.ts'
 import { mintToken } from './drive.ts'
 import { requireScratch } from '../lib/guard.ts'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -144,16 +144,22 @@ const ABSENT_ID = '00000000-0000-0000-0000-000000000000'
 /**
  * Probe placeholders, resolved for a MINIMAL database.
  *
- * `drive` resolves REAL_TASK and friends against the data; here there is none by
+ * `drive` resolves them against the data; here there is none by
  * definition, so they become a valid id that is not there — which IS the state
  * under test. Left unresolved they went out as the literal string, and two routes
  * answered 500 to `invalid input syntax for type uuid`: a finding about malformed
  * input, dressed as a finding about an empty database.
  */
 function resolveForEmptyState(body: string, subject: string): string {
-    return body
-        .replace(/"SELF"/g, JSON.stringify(subject))
-        .replace(/"(REAL_[A-Z_]+|OTHER_MEMBER)"/g, JSON.stringify(ABSENT_ID))
+    let out = body.replace(/"SELF"/g, JSON.stringify(subject))
+    // The NAMES come from the project's config — this file knowing that a
+    // placeholder is called REAL_TASK or OTHER_MEMBER is one project's schema
+    // inside a tool meant to serve any of them. What is generic is the rule:
+    // whatever `drive` would have looked up, here resolves to absent.
+    for (const name of Object.keys(loadConfig().placeholders ?? {})) {
+        out = out.replace(new RegExp(`"${name}"`, 'g'), JSON.stringify(ABSENT_ID))
+    }
+    return out
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))

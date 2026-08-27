@@ -21,7 +21,7 @@
  */
 
 import { Buffer } from 'node:buffer'
-import { discover } from '../lib/db.ts'
+import { discover, loadConfig } from '../lib/db.ts'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { Client } from 'pg'
 import { requireScratch } from '../lib/guard.ts'
@@ -102,42 +102,53 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
  * Hardcoding row ids into probes.json makes every probe stale the moment anyone
  * runs `supabase db reset` — and a probe that 404s looks like a passing 4xx, so
  * the rot is silent. Placeholders are looked up instead:
- *   SELF          the authenticated caller's member id
- *   OTHER_MEMBER  any OTHER member — for a probe whose whole point is acting on
- *                 someone who is not you. Without it, a self-referential probe
- *                 either violates a constraint or, worse, does not: driving an
- *                 exclusion of SELF by SELF wrote a row `no-self-exclusion` says
- *                 can never exist, and only escaped notice because the next
- *                 probe removed it.
- *   REAL_TASK     a weekly_task belonging to that member
- *   REAL_MSM      a memberSocialMediaId targeted by that task
+ *   SELF   the authenticated caller's own id. Built in, because "who is
+ *          driving" is assay's notion rather than any project's.
+ *   others declared in `placeholders` in .assay/config.json, each one a query
+ *          that finds a real row. THIS FILE USED TO CONTAIN THREE OF THEM — a
+ *          `members` lookup and two `weekly_tasks` ones — which is one project's
+ *          schema living inside a tool meant to serve any project.
+ *
+ * A REAL_* name a probe uses and the config does not declare is an ERROR, not a
+ * silent pass-through: unresolved, it reaches the route as that literal string,
+ * which is a malformed uuid, which is a 400 — and a 4xx is how every sweep here
+ * spells "handled correctly".
  */
 async function resolvePlaceholders(body: string, selfId: string, dbUrl: string): Promise<string> {
     let out = body.replace(/"SELF"/g, JSON.stringify(selfId))
-    if (!out.includes('REAL_') && !out.includes('OTHER_MEMBER')) return out
+    const declared = loadConfig().placeholders ?? {}
+    // Only DECLARED names are substituted: a capitalised string that is not
+    // declared is far more likely an enum value the route expects ("BOOST_MAX")
+    // than a placeholder. The check for the opposite mistake is right below.
+    const used = [...new Set([...out.matchAll(/"([A-Z][A-Z0-9_]{2,})"/g)].map(m => m[1]))]
+        .filter(name => name in declared)
+    const unresolved = [...new Set([...out.matchAll(/"(REAL_[A-Z0-9_]+)"/g)].map(m => m[1]))]
+        .filter(name => !(name in declared))
+    if (unresolved.length) {
+        throw new Error(
+            `assay drive: probe uses ${unresolved.join(', ')}, which .assay/config.json does not ` +
+            `declare under \`placeholders\`. Unresolved, it reaches the route as a literal string ` +
+            `and is answered 400 — which every check here reads as a pass.`)
+    }
+    if (!used.length) return out
     const client = new Client(dbUrl)
     await client.connect()
     try {
-        if (out.includes('OTHER_MEMBER')) {
-            const { rows: others } = await client.query(
-                `select id from public.members where id <> $1 order by id limit 1`, [selfId])
-            out = out.replace(/"OTHER_MEMBER"/g,
-                JSON.stringify(others[0]?.id ?? '00000000-0000-0000-0000-000000000000'))
-            if (!out.includes('REAL_')) return out
+        for (const name of used) {
+            const { rows } = await client.query(declared[name], [selfId])
+            const value = rows[0] ? Object.values(rows[0])[0] : null
+            out = out.replace(new RegExp(`"${name}"`, 'g'), JSON.stringify(value ?? ABSENT_ROW))
         }
-        const { rows } = await client.query(
-            `select id, task_data from public.weekly_tasks where member_id = $1 order by created_at desc limit 1`, [selfId])
-        const task = rows[0]
-        let msm: string | null = null
-        for (const pt of Object.values(task?.task_data?.platformTasks ?? {})) {
-            const target = ((pt as any).targets ?? [])[0]
-            if (target) { msm = target.memberSocialMediaId; break }
-        }
-        out = out.replace(/"REAL_TASK"/g, JSON.stringify(task?.id ?? '00000000-0000-0000-0000-000000000000'))
-                 .replace(/"REAL_MSM"/g, JSON.stringify(msm ?? '00000000-0000-0000-0000-000000000000'))
     } finally { await client.end() }
     return out
 }
+
+/**
+ * A syntactically valid uuid no row has, so a lookup that found nothing gives a
+ * 404 rather than a malformed-input 400 or a crash.
+ */
+const ABSENT_ROW = '00000000-0000-0000-0000-000000000000'
+
 const sizeOf = (p: string) => { try { return readFileSync(p, 'utf8').length } catch { return 0 } }
 
 import { isEntrypoint } from '../lib/paths.ts'

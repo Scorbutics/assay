@@ -32,26 +32,50 @@ import { existsSync, unlinkSync } from 'node:fs'
 import { dirname as _dirname, join as _join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { projectRoot } from '../lib/paths.ts'
+import { loadConfig } from '../lib/db.ts'
 
-const PROJECT = process.env.ASSAY_PROJECT ?? 'peps_ta_boite_backend'
-const DB_CONTAINER = `supabase_db_${PROJECT}`
-const REST_CONTAINER = `supabase_rest_${PROJECT}`
-const AUTH_CONTAINER = `supabase_auth_${PROJECT}`
-const NETWORK = `supabase_network_${PROJECT}`
+/**
+ * The supabase CLI project name, which is what its container names are built
+ * from. Read from the project rather than defaulted: this file used to carry ONE
+ * project's name as its fallback, so every OTHER project got a container that
+ * does not exist and a connection refused that reads as "docker is down".
+ *
+ * Resolved LAZILY, on first use. A top-level `throw` fires during module import,
+ * which bun reports as a stack trace over the source line — the message saying
+ * what to configure scrolls off, and `scratch off` becomes unreachable on a
+ * machine that cannot even read the config. Here the failure is a sentence.
+ */
+let cachedProject: string | null = null
+function project(): string {
+    if (cachedProject) return cachedProject
+    const name = process.env.ASSAY_PROJECT ?? loadConfig().database.project
+    if (!name) {
+        console.error(
+            'assay scratch: no supabase project name. Set `database.project` in .assay/config.json\n' +
+            '(or ASSAY_PROJECT) — it is what `supabase_db_<name>` and its siblings are built from.')
+        process.exit(1)
+    }
+    return (cachedProject = name)
+}
+
+const DB_CONTAINER = () => `supabase_db_${project()}`
+const REST_CONTAINER = () => `supabase_rest_${project()}`
+const AUTH_CONTAINER = () => `supabase_auth_${project()}`
+const NETWORK = () => `supabase_network_${project()}`
 const SCRATCH = process.env.ASSAY_SCRATCH_DB ?? 'assay_scratch'
 const REAL = 'postgres'
 
 const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { encoding: 'utf8' }).trim()
 const psql = (db: string, sql: string) =>
-    sh('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER, 'psql', '-U', 'supabase_admin', '-d', db, '-tAc', sql])
+    sh('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER(), 'psql', '-U', 'supabase_admin', '-d', db, '-tAc', sql])
 
 function authDb(): string {
-    const env = sh('docker', ['inspect', AUTH_CONTAINER, '--format', '{{range .Config.Env}}{{println .}}{{end}}'])
+    const env = sh('docker', ['inspect', AUTH_CONTAINER(), '--format', '{{range .Config.Env}}{{println .}}{{end}}'])
     return env.split('\n').find(l => l.startsWith('GOTRUE_DB_DATABASE_URL='))?.split('/').pop() ?? '(unknown)'
 }
 
 function currentDb(): string {
-    const env = sh('docker', ['inspect', REST_CONTAINER, '--format', '{{range .Config.Env}}{{println .}}{{end}}'])
+    const env = sh('docker', ['inspect', REST_CONTAINER(), '--format', '{{range .Config.Env}}{{println .}}{{end}}'])
     const uri = env.split('\n').find(l => l.startsWith('PGRST_DB_URI='))
     return uri?.split('/').pop() ?? '(unknown)'
 }
@@ -74,7 +98,7 @@ function recreate(container: string, variable: string, value: string, extra: str
     const envFile = `/tmp/assay-${container}.env`
     writeFileSync(envFile, lines.join('\n') + '\n')
     sh('docker', ['rm', '-f', container])
-    sh('docker', ['run', '-d', '--name', container, '--network', NETWORK, '--restart', 'unless-stopped',
+    sh('docker', ['run', '-d', '--name', container, '--network', NETWORK(), '--restart', 'unless-stopped',
         '--env-file', envFile, ...extra, image, ...(cmd ?? [])])
 }
 
@@ -95,10 +119,10 @@ function recreate(container: string, variable: string, value: string, extra: str
  * read as unhealthy to anything that waits on it.
  */
 function repoint(db: string) {
-    recreate(REST_CONTAINER, 'PGRST_DB_URI',
-        `postgresql://authenticator:postgres@${DB_CONTAINER}:5432/${db}`)
-    recreate(AUTH_CONTAINER, 'GOTRUE_DB_DATABASE_URL',
-        `postgresql://supabase_auth_admin:postgres@${DB_CONTAINER}:5432/${db}`,
+    recreate(REST_CONTAINER(), 'PGRST_DB_URI',
+        `postgresql://authenticator:postgres@${DB_CONTAINER()}:5432/${db}`)
+    recreate(AUTH_CONTAINER(), 'GOTRUE_DB_DATABASE_URL',
+        `postgresql://supabase_auth_admin:postgres@${DB_CONTAINER()}:5432/${db}`,
         ['--health-cmd', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:9999/health',
          '--health-interval', '10s', '--health-timeout', '2s', '--health-retries', '3'])
 }
@@ -128,9 +152,9 @@ if (cmd === 'status') {
     // against yesterday's data while reporting a successful setup.
     if (currentDb() === SCRATCH || authDb() === SCRATCH) repoint(REAL)
     psql(REAL, `select pg_terminate_backend(pid) from pg_stat_activity where datname = '${SCRATCH}'`)
-    execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER, 'psql', '-U', 'supabase_admin', '-d', REAL,
+    execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER(), 'psql', '-U', 'supabase_admin', '-d', REAL,
         '-c', `DROP DATABASE IF EXISTS ${SCRATCH}`], { encoding: 'utf8' })
-    execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER, 'psql', '-U', 'supabase_admin', '-d', REAL,
+    execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER(), 'psql', '-U', 'supabase_admin', '-d', REAL,
         '-c', `CREATE DATABASE ${SCRATCH}`], { encoding: 'utf8' })
     // CUSTOM FORMAT AND pg_restore, not `pg_dump | psql`.
     //
@@ -142,12 +166,12 @@ if (cmd === 'status') {
     // table, and the rest of that table is gone. Constraints that reference the
     // missing rows fail to validate next, so the clone ends up without foreign
     // keys — which is why PostgREST answered "Could not find a relationship
-    // between 'members' and 'directory_sectors'" and three operations looked
+    // between two tables" and three operations looked
     // broken on a developer machine while passing in CI.
     //
     // pg_restore has no such failure mode: data is restored through its own
     // channel, so one failing object cannot corrupt the parse of the next.
-    execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER, 'bash', '-c',
+    execFileSync('docker', ['exec', '-e', 'PGPASSWORD=postgres', DB_CONTAINER(), 'bash', '-c',
         `pg_dump -Fc -U supabase_admin -d ${REAL} -f /tmp/assay-clone.dump && ` +
         // Ownership and privileges are PRESERVED. --no-owner/--no-privileges are
         // for restoring onto a server whose roles differ; here it is the same
@@ -174,7 +198,7 @@ if (cmd === 'status') {
     if (drift.length) {
         console.error(`\n✗ The clone is NOT a faithful copy — ${drift.join(', ')}.`)
         console.error('  Driving against it would produce findings about the clone. Restore errors:')
-        console.error(sh('docker', ['exec', DB_CONTAINER, 'sh', '-c',
+        console.error(sh('docker', ['exec', DB_CONTAINER(), 'sh', '-c',
             'grep -oE "^pg_restore: error: .{0,80}" /tmp/assay-clone.err | sort | uniq -c | sort -rn | head -5 || true']))
         process.exit(1)
     }

@@ -23,13 +23,33 @@ import { projectRoot } from './paths.ts'
 
 const ROOT = projectRoot()
 
-interface Config {
+export interface Config {
     database: {
         discover?: { command: string; cwd?: string; keys: Record<string, string> }
         envOverride?: string
         isolation?: 'rollback' | 'scratch-clone'
+        /**
+         * The supabase CLI project name, which is what its container names are
+         * built from. No default: guessing one produces `supabase_db_<wrong>`
+         * and a connection refused, which reads as "docker is down".
+         */
+        project?: string
     }
     operations?: { root: string; entry: string }
+    /**
+     * Probe placeholders: a NAME a probe body may carry in place of a row id,
+     * and the SQL that finds a real one. `$1` is the authenticated caller's id.
+     *
+     * This exists because the alternative was assay knowing about `weekly_tasks`
+     * and `members` — one project's schema compiled into a tool meant to serve
+     * any of them. Each query returns at most one row; its FIRST COLUMN is the
+     * value. Nothing found substitutes the absent-row uuid, so a probe degrades
+     * to a 404 rather than a crash.
+     *
+     * `SELF` is not here and cannot be redefined: the caller's own id is assay's
+     * own notion, not a project's.
+     */
+    placeholders?: Record<string, string>
 }
 
 export interface Discovered {
