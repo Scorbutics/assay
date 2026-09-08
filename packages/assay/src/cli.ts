@@ -40,6 +40,7 @@ const SUMMARY: Record<string, string> = {
     'capture':     'file captured shapes from a runtime log against nodes',
     'intercept':   'serialise intercept policy for the runtime (store/replay)',
     'rpc-map':     'resolve what Postgres functions write',
+    'rules':       "write assay's host rules into CLAUDE.md / AGENTS.md",
     'scratch':     'point the data plane at a throwaway clone',
     'mark':        'mark a database disposable',
     'sync-seam':   'regenerate the vendored seam for runtimes that cannot import assay',

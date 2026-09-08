@@ -756,12 +756,36 @@ function rowsOf(result: unknown): number | null {
  */
 export function withLedger<T extends object>(client: T, options: LedgerOptions = {}): T {
     const { serviceRole = false } = options
-    // Precedence: an explicit label, then the operation owning the current async
-    // context, then the call site. The middle one matters for clients built deep
-    // inside shared code (the mailer's preview driver) — the stack probe is a
-    // Node-only heuristic and returns nothing useful under Deno, so without this
-    // those statements would land under `unattributed`.
-    const operation = options.operation ?? CURRENT.getStore() ?? operationFromStack()
+    /**
+     * Precedence: an explicit label, then the operation owning the current async
+     * context, then the call site. The middle one matters for clients built deep
+     * inside shared code (the mailer's preview driver) — the stack probe is a
+     * Node-only heuristic and returns nothing useful under Deno, so without this
+     * those statements would land under `unattributed`.
+     *
+     * RESOLVED PER STATEMENT, not once per client. A server client is built per
+     * request, so binding the label to the instance was equivalent there — but a
+     * BROWSER client is a module-level singleton, and binding it once meant every
+     * statement a page ever issued carried whatever the stack looked like at first
+     * import of that module. One label, decided at page load, for a whole session:
+     * the corpus was not wrong in a way anyone would notice, it was uniformly
+     * useless.
+     *
+     * Called from the `from`/`rpc` trap, which runs SYNCHRONOUSLY inside the
+     * function issuing the statement. That is what makes the one-variable browser
+     * shim for AsyncLocalStorage sufficient rather than a hazard: its documented
+     * limit — two overlapping `run()` scopes seeing each other's value — only
+     * bites across an await, and nothing awaits between opening a scope and
+     * building the builder.
+     *
+     * Cost: `operationFromStack` builds an Error stack, and this moves that from
+     * once per client to once per statement. Only on the FALLBACK path — a caller
+     * that passes `operation`, or runs inside `runAsOperation`, pays nothing — and
+     * the probe is already dev-only (it returns `unattributed` under
+     * NODE_ENV=production without touching `Error.stack`).
+     */
+    const attribute = (): string =>
+        options.operation ?? CURRENT.getStore() ?? operationFromStack()
 
     // Arm the outbound seam wherever the DB seam is installed, so the two cover
     // the same operations without a second set of call sites to keep in sync.
@@ -778,7 +802,7 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
     // stronger; this covers the functions that build their own client.
     if (options.operation && !CURRENT.getStore()) CURRENT.enterWith(options.operation)
 
-    const record = (b: BuilderInternals, target: string, isRpc: boolean, result: unknown): void => {
+    const record = (b: BuilderInternals, target: string, isRpc: boolean, operation: string, result: unknown): void => {
         const error = (result as { error?: { message?: string } } | null)?.error
         sink({
             operation,
@@ -793,8 +817,14 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
         })
     }
 
-    /** Proxy a builder so the chain stays intercepted and `then` records. */
-    const wrapBuilder = <B extends object>(builder: B, target: string, isRpc: boolean): B =>
+    /**
+     * Proxy a builder so the chain stays intercepted and `then` records.
+     *
+     * `operation` travels WITH the builder rather than being read again at `then`:
+     * by the time the promise settles the statement's caller has long returned, so
+     * any scope it opened is closed and the stack is somebody else's.
+     */
+    const wrapBuilder = <B extends object>(builder: B, target: string, isRpc: boolean, operation: string): B =>
         new Proxy(builder, {
             get(node, prop, receiver) {
                 if (prop === 'then' && isBuilder(node)) {
@@ -804,7 +834,7 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
                         // recorded is the aggregate the caller receives.
                         Promise.resolve(node.then.call(node, (r: any) => r)).then(
                             (result: unknown) => {
-                                record(node, target, isRpc, result)
+                                record(node, target, isRpc, operation, result)
                                 return onfulfilled ? onfulfilled(result) : result
                             },
                             onrejected,
@@ -816,7 +846,7 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
                     const result = (value as AnyMethod).apply(node, args)
                     // Filter/transform methods return the builder itself — keep the
                     // wrapper on so the chain stays intercepted to the end.
-                    return result === node || isBuilder(result) ? wrapBuilder(result as object, target, isRpc) : result
+                    return result === node || isBuilder(result) ? wrapBuilder(result as object, target, isRpc, operation) : result
                 }
             },
         })
@@ -827,7 +857,7 @@ export function withLedger<T extends object>(client: T, options: LedgerOptions =
             if ((prop === 'from' || prop === 'rpc') && typeof value === 'function') {
                 const isRpc = prop === 'rpc'
                 return (...args: unknown[]) =>
-                    wrapBuilder((value as AnyMethod).apply(target, args) as object, String(args[0]), isRpc)
+                    wrapBuilder((value as AnyMethod).apply(target, args) as object, String(args[0]), isRpc, attribute())
             }
             return typeof value === 'function' ? value.bind(target) : value
         },
