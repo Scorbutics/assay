@@ -48,17 +48,42 @@ const NEXT = process.env.ASSAY_NEXT_URL ?? 'http://127.0.0.1:3000'
  * Local stack only: the captcha secret is Cloudflare's always-pass test key, so
  * any token string satisfies it.
  */
-export async function mintToken(email: string, password: string, anon: string): Promise<string> {
+export async function mintSession(email: string, password: string, anon: string): Promise<Session> {
     const res = await fetch(`${AUTH}/token?grant_type=password`, {
         method: 'POST',
         headers: { apikey: anon, 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, gotrue_meta_security: { captcha_token: 'XXXX.DUMMY.TOKEN.XXXX' } }),
     })
-    const json = await res.json() as { access_token?: string; msg?: string; error_description?: string }
+    const json = await res.json() as { access_token?: string; refresh_token?: string; msg?: string; error_description?: string }
     if (!json.access_token) {
         throw new Error(`login failed for ${email}: ${json.msg ?? json.error_description ?? JSON.stringify(json).slice(0, 120)}`)
     }
-    return json.access_token
+    // The subject is read from the token rather than looked up, so that "who am I
+    // driving as" is decided by the credential itself and cannot disagree with it.
+    const sub = JSON.parse(Buffer.from(json.access_token.split('.')[1], 'base64url').toString()).sub as string
+    return { accessToken: json.access_token, refreshToken: json.refresh_token ?? '', userId: sub, email }
+}
+
+/**
+ * A minted login.
+ *
+ * The REFRESH token is carried too, and only for one caller: a supabase-js
+ * client's `auth.setSession` takes a PAIR. `drive` never needed it — it sets an
+ * Authorization header by hand — but `drive-client` calls the host's own browser
+ * client, which authenticates itself and would otherwise issue every statement as
+ * the anonymous role. RLS answers an anon caller with nothing, so a
+ * caller-scoped check driven that way passes without touching a policy.
+ */
+export interface Session {
+    accessToken: string
+    refreshToken: string
+    /** The `sub` claim: WHO this session is. Compared, never assumed. */
+    userId: string
+    email: string
+}
+
+export async function mintToken(email: string, password: string, anon: string): Promise<string> {
+    return (await mintSession(email, password, anon)).accessToken
 }
 
 /**
@@ -114,7 +139,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
  * which is a malformed uuid, which is a 400 — and a 4xx is how every sweep here
  * spells "handled correctly".
  */
-async function resolvePlaceholders(body: string, selfId: string, dbUrl: string): Promise<string> {
+export async function resolvePlaceholders(body: string, selfId: string, dbUrl: string): Promise<string> {
     let out = body.replace(/"SELF"/g, JSON.stringify(selfId))
     const declared = loadConfig().placeholders ?? {}
     // Only DECLARED names are substituted: a capitalised string that is not

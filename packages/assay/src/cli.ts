@@ -24,6 +24,7 @@ const COMMANDS = join(HERE, 'commands')
 /** One line each, so `assay` with no argument is a usable index. */
 const SUMMARY: Record<string, string> = {
     'drive':       'drive an operation and capture its ledger',
+    'drive-client': 'drive a BROWSER module as two personas and capture its ledger',
     'check':       'gate a corpus against the declarations (exits 1 on drift)',
     'declare':     'propose declarations from a corpus; the diff is the review surface',
     'diff':        'what a change did: baseline corpus vs after',

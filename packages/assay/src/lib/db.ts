@@ -37,6 +37,20 @@ export interface Config {
     }
     operations?: { root: string; entry: string }
     /**
+     * The browser data path — see `commands/drive-client.ts`.
+     *
+     * `client` names the module exporting the host's browser client and the
+     * export it lives under. It is not defaulted: the driver has to authenticate
+     * THE SAME client the repositories import, and a guess that resolves to a
+     * different instance drives every probe as the anon role, where RLS returns
+     * nothing to everyone and a caller-scoped check passes vacuously.
+     */
+    clients?: {
+        client?: { module: string; export?: string }
+        /** Where the client probes live. Default `.assay/client-probes.json`. */
+        probes?: string
+    }
+    /**
      * Probe placeholders: a NAME a probe body may carry in place of a row id,
      * and the SQL that finds a real one. `$1` is the authenticated caller's id.
      *

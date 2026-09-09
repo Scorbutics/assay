@@ -232,6 +232,115 @@ correct paging and is not flagged (the real `1000 / 559` on `subscriptions`).
 
 It is SUSPECTED, not proven: a table holding exactly 1000 rows looks identical.
 
+## The browser data path — client modules
+
+An OPERATION is a request the backend serves. A statement issued by the BROWSER — a
+repository or service module calling PostgREST or an `rpc` through the browser client
+— is not one, so for a long time `assay check` said nothing about it. On the project
+this was built for that is ~40 modules naming 89 Postgres functions: the dominant
+data path, guarded by RLS and exercised by nothing.
+
+`assay unattributed` already finds those modules statically, and already prints the
+right unit — a named module with a read set and a write set. Three commands turn that
+list into a gate:
+
+```bash
+assay unattributed --emit                              # → .assay/clients.json
+assay drive-client lib/repositories/business-team.ts   # drive it as TWO personas
+assay check --client-corpus .assay/client-corpus.log   # gate it
+```
+
+`.assay/clients.json` splits the same way `operations.json` does — generated on the
+left, hand-written on the right:
+
+```jsonc
+{
+  "lib/repositories/business-team.ts": {
+    "reads":  ["business_team_members", "members", "notifications"],  // derived
+    "writes": ["notifications"],                                      // derived
+    "rpc":    ["get_my_business_team", "leave_business_team"],        // derived
+    "visibility": "caller-scoped"                                     // hand-written
+  }
+}
+```
+
+### `visibility` is the point
+
+The derived sets ratchet like any declaration: a browser module that starts writing an
+undeclared table, or calling an undeclared function, fails the gate. Useful, and not
+why this exists.
+
+`visibility` is a claim about RLS, and it is the only claim in this repository that
+exercises one:
+
+| value | what it asserts |
+|---|---|
+| `caller-scoped` | driven as an unrelated member, every read returns nothing and every write is refused |
+| `admin-only` | the same obligation from a non-admin's side |
+| `public` | asserts NOTHING — written down so that the absence of a check is a decision someone made |
+
+So a module claiming `caller-scoped` is driven **twice**: once as the member the probes
+are written for, once as a stranger who owns none of the data. `SELF` and
+`OTHER_MEMBER` in a probe's arguments swap between the two runs, which turns one probe
+into both "act on my own row" and "act on someone else's".
+
+```jsonc
+// .assay/client-probes.json
+{
+  "lib/repositories/business-team.ts": [
+    { "export": "getMyBusinessTeam", "args": [] },
+    { "export": "addToBusinessTeam",  "args": ["OTHER_MEMBER"] }
+  ]
+}
+```
+
+```jsonc
+// .assay/config.json — the driver must authenticate the SAME client the modules import
+{ "clients": { "client": { "module": "lib/supabase/client.ts", "export": "supabase" } } }
+```
+
+Driving needs two local accounts: `ASSAY_MEMBER_EMAIL`/`ASSAY_MEMBER_PASSWORD` and
+`ASSAY_STRANGER_EMAIL`/`ASSAY_STRANGER_PASSWORD`. They are compared against each other
+— the same account twice would make "the stranger saw nothing" mean only that the
+member saw nothing too.
+
+### The ways this goes inert, and what stops each
+
+A visibility check that passes for the wrong reason is worse than no check, because it
+is believed. Three ways it can, each of which is a hard failure rather than a pass:
+
+- **driving as `service_role`** — every policy off. Any service-role statement in a
+  client corpus fails.
+- **driving as nobody** — a `setSession` that silently failed leaves the client on the
+  anon role, where RLS returns nothing to *everyone*. The session's subject is compared
+  against what the client reports before any probe runs.
+- **driving nothing at all** — an empty corpus, or a `caller-scoped` claim no stranger
+  run exercised. Both fail; the second is an ERROR rather than a coverage note, because
+  an undriven claim in a file of checked claims reads as checked.
+
+### What it does NOT buy
+
+It does not check **values**. A client probe says "this reads three tables, writes
+nothing, and returns nothing to a stranger". It will never say "it returns 3 because
+the session is 47 hours away". Nor does it judge what a stranger's `rpc` *returned* —
+that is a question about values, and reading them would turn this into a general test
+runner, which is a different tool with a different cost.
+
+Behaviour that lives in SQL still needs a SQL test. One transaction, fixtures,
+`ASSERT`, `ROLLBACK`, no framework:
+
+```sql
+BEGIN;
+  -- fixtures
+  INSERT INTO members (id, ...) VALUES (...);
+  -- the claim
+  DO $$ BEGIN ASSERT (SELECT count(*) FROM business_team_state_with('...')) = 3; END $$;
+ROLLBACK;
+```
+
+The two are complements and must not be confused: the gate covers blast radius and
+reachability, the SQL test covers what the value should be.
+
 ## What assay does not cover
 
 **An empty result never means "everything is good".** It means *nothing was found in
@@ -245,6 +354,8 @@ from one shared list, so they cannot drift into three different accounts:
 - **anything bypassing a wrapped client** — psql, migrations, direct pg
 - **logic no invariant describes** — invariants are total over inputs, never over
   properties. They hold only for what someone wrote down.
+- **what a stranger's rpc RETURNED** — a visibility check judges rows read and writes
+  accepted, never values
 
 Large logical and semantic drifts can pass every check here. assay narrows where a
 bug can hide; it does not prove there isn't one.

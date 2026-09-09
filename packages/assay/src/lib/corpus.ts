@@ -34,6 +34,7 @@ export const NOT_COVERED = [
     'concurrency — a single run says nothing about interleaving',
     'anything bypassing a wrapped client — psql, migrations, direct pg',
     'logic no invariant describes — invariants are total over inputs, not over properties',
+    "what a stranger's rpc RETURNED — a visibility check judges rows read and writes accepted, never values",
 ]
 
 export function printNotCovered(): void {
@@ -64,6 +65,25 @@ export function band(n: number): string {
     return value >= 1000 ? `~${value / 1000}k` : `~${value}`
 }
 
+
+/** How much a finding matters. `error` fails the gate; nothing else does. */
+export type Severity = 'error' | 'warn' | 'note'
+
+/**
+ * One thing the gate found. Shared because the gate now reports over two
+ * different declaration files — operations and client modules — and two
+ * near-identical finding types would drift in exactly the field a reader relies
+ * on.
+ */
+export interface Finding {
+    severity: Severity
+    /** The operation, or the client module, this is about. */
+    operation: string
+    kind: string
+    detail: string
+    /** What to do about it. An agent acts on this; a person reads it. */
+    remedy: string
+}
 
 export interface Entry {
     operation: string

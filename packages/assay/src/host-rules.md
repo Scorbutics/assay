@@ -52,6 +52,29 @@ policy inert; a browser statement is defined ENTIRELY by the policies it runs un
 client-side access the review surface is the POLICY, not a declaration — read the migration
 that creates it, and say which role you reasoned about.
 
-The seam does record these statements when `NEXT_PUBLIC_ASSAY_LEDGER=on`, as `@ledger` lines
-in the browser console, attributed per statement. That is a diagnostic you can read; it is
-not a gate, because nothing drives it and nothing declares what it may do. Read it as such.
+### What now closes it, and what it still does not cover
+
+Client modules are declared and gated too, in `.assay/clients.json`:
+
+    assay unattributed --emit                          # derive reads/writes/rpc per module
+    assay drive-client lib/repositories/business-team.ts   # drive it, twice, as two personas
+    assay check --client-corpus .assay/client-corpus.log   # gate what it did
+
+Two halves, as everywhere else here. `reads`/`writes`/`rpc` are DERIVED from the static scan
+and ratchet like an operation's: an undeclared write or rpc from a browser module fails.
+`visibility` is HAND-WRITTEN and is the half that matters — `caller-scoped` means *driven as
+an unrelated member, every read returns nothing and every write is refused*, which is the
+claim RLS is supposed to make good on and the only claim here that exercises a policy.
+
+So: BEFORE editing a repository module, read its entry the same way you read an operation's.
+If it carries `visibility: caller-scoped`, changing what it reads or writes changes what that
+claim covers — and the claim is checked only for modules that have a probe in
+`.assay/client-probes.json`. A module with no `visibility` is declared and NOT checked
+against RLS; a `caller-scoped` module with no stranger run FAILS the gate rather than
+passing as missing coverage.
+
+What is still not covered: VALUES. A client probe says "this reads three tables, writes
+nothing, and returns nothing to a stranger". It does not say "it returns 3 because the
+session is 47 hours away". Behaviour that lives in SQL still needs a SQL test — one
+transaction, fixtures, `ASSERT`, `ROLLBACK`, no framework. Do not cite a green client gate as
+evidence about a value.

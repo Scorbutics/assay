@@ -39,15 +39,26 @@
  *            unrunnable on day one. Counted out loud so the number can only go
  *            down.
  *
+ * ## Emitting declarations
+ *
+ * `--emit` writes what this scan found into `.assay/clients.json`, keyed by
+ * module, in the same generated/hand-written split `operations.json` uses:
+ * `reads`/`writes`/`rpc` come from here, `visibility` is written by a person.
+ * That is what converts this warning list into a RATCHET — and, once a module
+ * carries `visibility: caller-scoped`, into the only check anywhere that
+ * exercises RLS. See `../lib/clients.ts`.
+ *
  * Usage:
  *   assay unattributed            # human-readable
  *   assay unattributed --json
  *   assay unattributed --strict   # reads fail too
+ *   assay unattributed --emit     # write .assay/clients.json
  */
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { loadRpcMap } from '../lib/corpus.ts'
+import { deniesStrangers, loadClients, mergeClients, stableClients } from '../lib/clients.ts'
 import { loadConfig } from '../lib/db.ts'
 import { isEntrypoint, projectRoot } from '../lib/paths.ts'
 
@@ -69,11 +80,33 @@ const ROOT = projectRoot()
  */
 const accessOf = (binding: string) =>
     new RegExp(`\\b${binding}\\s*\\.\\s*(from|rpc)\\(\\s*['"]([a-z_][a-z0-9_]*)['"]`, 'g')
-const writeChainOf = (binding: string) =>
-    new RegExp(
-        `\\b${binding}\\s*\\.\\s*from\\(\\s*['"]([a-z_][a-z0-9_]*)['"]\\s*\\)([\\s\\S]{0,400}?)\\.(insert|update|upsert|delete)\\s*\\(`,
-        'g',
-    )
+const fromOf = (binding: string) =>
+    new RegExp(`\\b${binding}\\s*\\.\\s*from\\(\\s*['"]([a-z_][a-z0-9_]*)['"]\\s*\\)`, 'g')
+const VERB_AHEAD = /\.\s*(insert|update|upsert|delete)\s*\(/
+
+/**
+ * Tables this binding WRITES: a `from(t)` whose chain reaches a write verb.
+ *
+ * The window ends at the next `.from(` — the chain cannot outlive the statement
+ * that opened it. A single regex with a lazy gap does not respect that boundary:
+ * `from('a').select()` … `from('b').insert()` matched as ONE chain from `a` to
+ * `b`'s insert, which the guard against a straddling match then discarded — and
+ * discarded the real write with it, because the match had already consumed past
+ * it. The scan reported that file as read-only. An UNDERSTATED write set is the
+ * one direction this file must not be wrong in: it is the list of the effects
+ * nobody is watching.
+ */
+export function writtenBy(src: string, binding: string): string[] {
+    const out: string[] = []
+    for (const m of src.matchAll(fromOf(binding))) {
+        const start = m.index + m[0].length
+        const rest = src.slice(start, start + 400)
+        const nextStatement = rest.search(/\.\s*from\s*\(/)
+        const chain = nextStatement === -1 ? rest : rest.slice(0, nextStatement)
+        if (VERB_AHEAD.test(chain)) out.push(m[1])
+    }
+    return out
+}
 /** `import { supabase } from "@/lib/supabase/client"` → `supabase`. */
 function bindingsFor(src: string, module: string): string[] {
     const out: string[] = []
@@ -170,11 +203,7 @@ export function findUnattributed(config: Config = loadConfig() as Config): {
         const rpcs = new Set<string>()
         const viaRpc = new Set<string>()
         const accesses = bindings.flatMap(b => [...src.matchAll(accessOf(b))])
-        for (const b of bindings) {
-            for (const m of src.matchAll(writeChainOf(b))) {
-                if (!m[2].includes('.from(')) writes.add(m[1])
-            }
-        }
+        for (const b of bindings) for (const table of writtenBy(src, b)) writes.add(table)
         for (const m of accesses) {
             if (m[1] === 'rpc') {
                 rpcs.add(m[2])
@@ -245,6 +274,41 @@ function main() {
             known: keys.sort(),
         }, null, 2) + '\n')
         console.log(`Baselined ${keys.length} client write(s) → ${baselinePath}`)
+        process.exit(0)
+    }
+
+    // --emit runs BEFORE the reporting below and exits, because it is a
+    // generation step rather than a gate: its review surface is the git diff of
+    // the file it writes, exactly as with `--accept`.
+    if (args.includes('--emit')) {
+        const i = args.indexOf('--emit')
+        const path = args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : '.assay/clients.json'
+        const full = join(ROOT, path)
+        const current = loadClients(full)
+        const { next, added, removed, changed } = mergeClients(current, sites)
+        writeFileSync(full, stableClients(next))
+
+        const claimed = Object.values(next.clients).filter(c => c.visibility).length
+        const driven = Object.values(next.clients).filter(c => deniesStrangers(c.visibility)).length
+        console.log(`Wrote ${path}: ${Object.keys(next.clients).length} client module(s).`)
+        if (added.length) console.log(`  + ${added.length} new: ${added.join(', ')}`)
+        if (changed.length) console.log(`  ≠ ${changed.length} changed: ${changed.join(', ')}`)
+        for (const gone of removed) {
+            // Named individually: dropping the entry also drops its hand-written
+            // `visibility`, and a claim vanishing from the file is the one loss
+            // here that nothing downstream can notice.
+            console.log(`  - removed ${gone} (no longer reaches the database from a client)`)
+            if (current.clients[gone]?.visibility) {
+                console.log(`      it carried visibility: ${current.clients[gone].visibility} — that claim is now gone`)
+            }
+        }
+        console.log(`\n${claimed}/${Object.keys(next.clients).length} module(s) carry a \`visibility\` claim; ${driven} of those are checkable.`)
+        if (claimed < Object.keys(next.clients).length) {
+            console.log('A module with no `visibility` is DECLARED BUT NOT CHECKED against RLS:')
+            console.log('  reads/writes/rpc ratchet, and nothing exercises what a stranger can reach.')
+            console.log('  Add "visibility": "caller-scoped" | "admin-only" | "public" — only a')
+            console.log('  hand-written claim can be checked. Then: assay drive-client <module>')
+        }
         process.exit(0)
     }
 

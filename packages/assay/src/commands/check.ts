@@ -24,6 +24,11 @@
  * WARN — read drift. A new read widens coupling but changes nothing, so it does
  *   not block by default. `--strict` promotes it.
  *
+ * The same three levels apply to CLIENT MODULES (`--client-corpus`), with one
+ * addition that has no operation counterpart: a module declaring
+ * `visibility: caller-scoped` and never driven as a stranger is an ERROR, not a
+ * coverage note. An undriven claim in a file of checked claims reads as checked.
+ *
  * NOTE — declared but not observed. NEVER an error: a corpus only contains what
  *   was exercised, so absence is almost always missing coverage rather than dead
  *   declaration. Treating it as failure would make the gate punish partial runs,
@@ -32,21 +37,13 @@
  * Usage:
  *   assay check corpus.log
  *   assay check corpus.log --strict --json
+ *   assay check corpus.log --client-corpus .assay/client-corpus.log
+ *   assay check --client-corpus .assay/client-corpus.log      # client gate alone
  */
 
-import { loadRpcMap, printNotCovered, readCorpus, summarise } from '../lib/corpus.ts'
+import { loadRpcMap, printNotCovered, readCorpus, summarise, type Finding, type Severity } from '../lib/corpus.ts'
+import { checkClients, loadClients } from '../lib/clients.ts'
 import { loadDeclarations, type Declaration } from './declare.ts'
-
-type Severity = 'error' | 'warn' | 'note'
-
-interface Finding {
-    severity: Severity
-    operation: string
-    kind: string
-    detail: string
-    /** What to do about it. An agent acts on this; a person reads it. */
-    remedy: string
-}
 
 const ACCEPT = 'assay declare <corpus> --write'
 
@@ -69,6 +66,18 @@ function main() {
     // the EXIT CODE is what an agent and CI read, so it has to say so too.
     const required = args.reduce<string[]>((acc, a, i) => (a === '--require' ? [...acc, args[i + 1]] : acc), [])
 
+    // THE CLIENT GATE — the same reconciliation over statements the BROWSER
+    // issued, which are not operations and have never been gated by anything.
+    // A separate corpus and a separate declaration file, because they are
+    // separately produced: `assay drive-client` writes the corpus,
+    // `assay unattributed --emit` writes the declarations.
+    const clientCorpus = at('--client-corpus', '')
+    const clientsPath = at('--clients', '.assay/clients.json')
+    // With a client corpus and no operation corpus, only the client gate runs.
+    // Without this the positional-less invocation reads STDIN and hangs, which
+    // is the least useful way for a gate to fail.
+    const gateOperations = Boolean(file) || !clientCorpus
+
     const { map: rpcMap, loaded } = loadRpcMap(rpcMapPath)
     if (!loaded) {
         console.error(`✗ No RPC write map at ${rpcMapPath} — every write done inside a Postgres`)
@@ -78,13 +87,13 @@ function main() {
     }
 
     const declarations = loadDeclarations(declPath)
-    if (!Object.keys(declarations.operations).length) {
+    if (gateOperations && !Object.keys(declarations.operations).length) {
         console.error(`✗ No declarations at ${declPath}. Generate them first:`)
         console.error(`    ${ACCEPT}`)
         process.exit(2)
     }
 
-    const entries = readCorpus(file)
+    const entries = gateOperations ? readCorpus(file) : []
     const summaries = summarise(entries, rpcMap)
     // Keying rules need the raw statements: a summary keeps the union of filters,
     // which loses WHICH table each filter belonged to.
@@ -293,11 +302,40 @@ function main() {
     const observed = new Set(summaries.map(s => s.operation))
     const unexercised = Object.keys(declarations.operations).filter(o => !observed.has(o))
 
+    // ---- client modules ---------------------------------------------------
+    //
+    // Findings are folded into the SAME list and the same exit code. Two gates
+    // reporting separately is two things to run and one of them to forget, and
+    // the one that would be forgotten is this one — it is the newer half and the
+    // half whose absence looks exactly like a pass.
+    let clientUnexercised: string[] = []
+    let clientModules = 0
+    if (clientCorpus) {
+        const clients = loadClients(clientsPath)
+        if (!Object.keys(clients.clients).length) {
+            console.error(`✗ No client declarations at ${clientsPath}. Generate them first:`)
+            console.error('    assay unattributed --emit')
+            process.exit(2)
+        }
+        const clientEntries = readCorpus(clientCorpus)
+        if (!clientEntries.length) {
+            // An empty corpus is never a result. Driving nothing and gating it
+            // exits 0 today; that is the failure this whole feature is about.
+            console.error(`✗ ${clientCorpus} contains no statements — nothing was observed, so`)
+            console.error('  nothing is proved. Drive the modules first: assay drive-client <module>')
+            process.exit(2)
+        }
+        const result = checkClients(clientEntries, clients, rpcMap, { strict })
+        findings.push(...result.findings)
+        clientUnexercised = result.unexercised
+        clientModules = Object.keys(clients.clients).length - result.unexercised.length
+    }
+
     const errors = findings.filter(f => f.severity === 'error')
     const warns = findings.filter(f => f.severity === 'warn')
 
     if (asJson) {
-        console.log(JSON.stringify({ findings, unexercised, errors: errors.length, warnings: warns.length }, null, 2))
+        console.log(JSON.stringify({ findings, unexercised, clientUnexercised, errors: errors.length, warnings: warns.length }, null, 2))
         process.exit(errors.length ? 1 : 0)
     }
 
@@ -308,8 +346,18 @@ function main() {
         console.log(`    → ${f.remedy}`)
     }
 
-    console.log(`\n${errors.length} error(s), ${warns.length} warning(s) across ${summaries.length} observed operation(s).`)
+    // Both denominators, always — a count of operations alone would read as the
+    // whole gate on a run where the client half is the only half that ran.
+    const scope = [
+        ...(gateOperations ? [`${summaries.length} observed operation(s)`] : []),
+        ...(clientCorpus ? [`${clientModules} observed client module(s)`] : []),
+    ].join(' and ')
+    console.log(`\n${errors.length} error(s), ${warns.length} warning(s) across ${scope}.`)
     if (!errors.length && !warns.length) printNotCovered()
+    if (clientUnexercised.length) {
+        console.log(`· ${clientUnexercised.length} declared client module(s) not exercised by this corpus — unchecked, not clean:`)
+        console.log(`    ${clientUnexercised.join(', ')}`)
+    }
     if (unexercised.length) {
         // The remainder, said out loud: these were NOT checked.
         console.log(`· ${unexercised.length} declared operation(s) not exercised by this corpus — unchecked, not clean:`)
