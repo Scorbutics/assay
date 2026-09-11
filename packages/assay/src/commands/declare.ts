@@ -94,10 +94,26 @@ export interface DeclarationFile {
 
 const EMPTY: DeclarationFile = { version: 1, operations: {} }
 
+/**
+ * Parse declaration TEXT, throwing on anything that is not a declaration file.
+ *
+ * Separate from `loadDeclarations` because the two callers want opposite things
+ * from a broken file. The gate wants a missing file to read as "nothing declared
+ * yet" so a fresh project is not blocked by its own emptiness. A reader
+ * comparing two versions of the file wants malformed JSON to STOP, because the
+ * alternative is rendering a base of `{}` against a full head and reporting every
+ * operation in the project as new — a wall of red that says the opposite of what
+ * happened, and that nobody reads twice.
+ */
+export function parseDeclarations(text: string): DeclarationFile {
+    const parsed = JSON.parse(text) as DeclarationFile
+    if (!parsed || typeof parsed !== 'object') throw new Error('not an object')
+    return { version: 1, operations: parsed.operations ?? {} }
+}
+
 export function loadDeclarations(path: string): DeclarationFile {
     try {
-        const parsed = JSON.parse(readFileSync(path, 'utf8')) as DeclarationFile
-        return { version: 1, operations: parsed.operations ?? {} }
+        return parseDeclarations(readFileSync(path, 'utf8'))
     } catch {
         return structuredClone(EMPTY)
     }

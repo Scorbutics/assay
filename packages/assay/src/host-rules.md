@@ -16,6 +16,14 @@ Backend work goes through assay (the effect ledger — see assay/README.md):
    `--require` is not optional: without it an operation you never drove is simply absent
    from the corpus, and absence exits 0. An undeclared write fails; accept an intended
    widening with `bun run assay:declare /tmp/after.log --write` — that diff is the review surface.
+ - WHAT YOU CHANGED IN THE DECLARATION IS WHAT A HUMAN REVIEWS, so render it before saying a
+   backend change is done:
+     bun run assay:review --base origin/main
+   No database and no environment — it reads `.assay/operations.json` at two refs and orders the
+   difference by consequence. A deleted `mustNotCall`, a new `rlsBypassed: true` or a first call to
+   a host this operation has never reached is a DECISION someone has to take, and a JSON hunk in a
+   forty-file diff is where decisions go to be scrolled past. If the output has a red row, say so
+   in your own summary rather than leaving it for the reader to find.
  - If no probe reaches the branch you changed, ADD ONE to `.assay/probes.json` (a list per
    operation, one per branch) before you finish. If the branch needs DB state, drive the
    operation that writes the table it reads — the declarations tell you which one that is —
