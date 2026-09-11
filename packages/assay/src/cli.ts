@@ -27,6 +27,7 @@ const SUMMARY: Record<string, string> = {
     'drive-client': 'drive a BROWSER module as two personas and capture its ledger',
     'check':       'gate a corpus against the declarations (exits 1 on drift)',
     'declare':     'propose declarations from a corpus; the diff is the review surface',
+    'review':      'render the declaration change as markdown for a pull request',
     'diff':        'what a change did: baseline corpus vs after',
     'report':      'read/write sets, coupling basins, volume, cap-hits',
     'invariants':  'properties that hold for every input, ratcheted',
@@ -47,7 +48,12 @@ const SUMMARY: Record<string, string> = {
     'sync-seam':   'regenerate the vendored seam for runtimes that cannot import assay',
 }
 
-const available = () => readdirSync(COMMANDS).filter(f => f.endsWith('.ts')).map(f => f.slice(0, -3)).sort()
+// `_test.ts` files sit beside the commands they test, and listing them here offered
+// `assay unattributed_test` as if it were a verb — which then fails in a way that reads
+// like a broken install rather than a command that was never meant to exist.
+const available = () => readdirSync(COMMANDS)
+    .filter(f => f.endsWith('.ts') && !f.endsWith('_test.ts'))
+    .map(f => f.slice(0, -3)).sort()
 
 const [command, ...rest] = process.argv.slice(2)
 

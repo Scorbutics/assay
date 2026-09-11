@@ -62,6 +62,91 @@ only reaches its notify phase with a payment already in the right state, so its
 touches shows up as three lines (`+ writes: audit_log`) instead of four hundred
 lines of handler.
 
+## `assay review` — the review surface, where review happens
+
+The line above was half true for a long time. The file is reviewABLE; nothing put
+it in front of a reviewer. In practice it arrives as a JSON hunk in a diff of
+forty files, sorted alphabetically rather than by consequence, with
+`"rlsBypassed": true` on the same visual footing as a reordered read.
+
+```bash
+assay review --base origin/main                  # markdown, for a pull request comment
+assay review --base origin/main --json           # the same findings, machine-readable
+assay review --base a.json --head b.json         # two files, no git
+```
+
+**It needs no database, no environment and no driving.** It reads
+`.assay/operations.json` at two refs and orders the difference by how much it
+matters. That is what makes it the one assay surface that works from a phone, in
+a checkout that cannot boot the app, in seconds.
+
+It is not a gate — `check` is the gate, and it reconciles the declaration against
+an observed corpus. This shows a human what the declaration now SAYS, which is
+the half no automation can do: "this operation may now write `audit_log`" is a
+decision, not a fact.
+
+### The direction it is built around
+
+Adding to a declaration LOOSENS the gate — `check` denies by default, so a new
+`writes` entry is permission granted, increasingly by an agent. Removing tightens
+it. Severities mirror `check`'s own vocabulary rather than inventing a second one:
+
+| Level | What |
+|---|---|
+| 🔴 error | a deleted `mustNotFilterOn` / `mustNotCall` / `mustFollow`, `rlsBypassed` newly true, a new write, a new rpc, a first call to a new HOST |
+| 🟡 warn | a new operation, a new endpoint on a host already reached, a new read, a removed `keyingWhy` |
+| · note | anything that tightens the gate, and banded magnitude shifts |
+
+The prohibitions come first for a reason. They are the only fields a corpus can
+never reconstruct — `declare --write` carries them through untouched by design —
+so the ONLY way one disappears is that somebody deleted it. That deletion is
+invisible in a JSON diff and is the most consequential edit anyone can make to
+this file.
+
+A new HOST outranks a new endpoint on a host the operation already calls: the
+first is data leaving for somewhere it has never been, the second is a feature.
+
+### Exit codes
+
+    0  rendered
+    1  --fail-on error|warn, and something reached that level  (default: never)
+    2  could not run — an unresolvable ref, malformed JSON, or nothing on either side
+
+The last one matters more than it looks. Comparing two empty files renders as
+"no declared change" in every tool that does not think about it, which puts a
+green comment on a pull request assay never looked at.
+
+### As a pull request comment
+
+```yaml
+# .github/workflows/assay-review.yml
+name: assay review
+on: pull_request
+permissions: { contents: read, pull-requests: write }
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # A shallow clone carries no other branches, and `review` exits 2 rather
+      # than comparing against an emptiness it would report as "all new".
+      - run: git fetch --no-tags --depth=1 origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+      - run: bun install --frozen-lockfile
+      - run: bunx assay review --base origin/${{ github.base_ref }} > /tmp/review.md
+      # Sticky: one comment per pull request, edited in place. The marker
+      # `<!-- assay-review -->` leads the rendered output, which is what finds it.
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: assay-review
+          path: /tmp/review.md
+```
+
+Add `--fail-on error` to that command to block the merge instead of only saying
+so. Start without it: a surface people read is worth more than a gate they learn
+to override, and the declaration is already gated by `check` from the other side.
+
 ## Why the RPC map is mandatory
 
 This codebase pushes mutations into Postgres functions. Without

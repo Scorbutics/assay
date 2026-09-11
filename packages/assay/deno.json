@@ -24,6 +24,7 @@
     "./commands/mark": "./src/commands/mark.ts",
     "./commands/nodes": "./src/commands/nodes.ts",
     "./commands/report": "./src/commands/report.ts",
+    "./commands/review": "./src/commands/review.ts",
     "./commands/rpc-map": "./src/commands/rpc-map.ts",
     "./commands/scratch": "./src/commands/scratch.ts",
     "./commands/static": "./src/commands/static.ts",
