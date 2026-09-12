@@ -28,6 +28,7 @@ const SUMMARY: Record<string, string> = {
     'check':       'gate a corpus against the declarations (exits 1 on drift)',
     'declare':     'propose declarations from a corpus; the diff is the review surface',
     'review':      'render the declaration change as markdown for a pull request',
+    'attest':      'one HTML page saying what a run actually examined',
     'diff':        'what a change did: baseline corpus vs after',
     'report':      'read/write sets, coupling basins, volume, cap-hits',
     'invariants':  'properties that hold for every input, ratcheted',
