@@ -110,7 +110,27 @@ async function main() {
     }
 
     const client = new Client(dbUrl)
-    await client.connect()
+    // A DATABASE THAT CANNOT BE REACHED IS NOT A VIOLATED INVARIANT.
+    //
+    // `connect()` throwing used to leave the process on an uncaught rejection, so
+    // the run exited 1 — the code that means "something contradicted a
+    // declaration". Anything reading that exit code, and an unattended agent
+    // especially, is then told to repair a finding that does not exist, while the
+    // real fault is that nothing was checked at all. Exit 2: could not run, retry,
+    // do NOT repair.
+    //
+    // The per-invariant catch below stays as it is, and the distinction is the
+    // point: an invariant whose QUERY errored is a failure (an invariant that
+    // errors silently is indistinguishable from one that holds), while the
+    // connection never getting made means no invariant was evaluated at all.
+    try {
+        await client.connect()
+    } catch (e) {
+        console.error(`✗ could not connect to the database: ${(e as Error).message.split('\n')[0]}`)
+        console.error(`  ${selected.length} invariant(s) were selected and NONE was evaluated.`)
+        console.error('  Nothing was checked, which is not the same as nothing being wrong.')
+        process.exit(2)
+    }
 
     const results: Array<{ name: string; newKeys: string[]; knownKeys: string[]; error?: string }> = []
     for (const inv of selected) {
