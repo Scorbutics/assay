@@ -165,3 +165,53 @@ test('output is escaped — a table name is not markup', () => {
     expect(html).not.toContain('<script>alert(1)</script>')
     expect(html).toContain('&lt;script&gt;')
 })
+
+// ── tier 2 over a corpus that was already driven ─────────────────────────────
+
+test('a corpus that could not be gated leaves the run incomplete, not passing', () => {
+    // The shape the CI wiring produces when the driving step wrote nothing.
+    expect(verdictOf([
+        step({ state: 'held' }),
+        step({ id: 'gate', name: 'tier 2 — gate the driven corpus', state: 'not-run',
+               reason: 'the corpus at /tmp/x.log is empty — nothing was observed' }),
+        step({ id: 'invariants', name: 'tier 2 — invariants', state: 'not-run', reason: 'same' }),
+    ])).toBe('INCOMPLETE')
+})
+
+test('a gate with nothing undeclared still says what the corpus never exercised', () => {
+    const f = findingOf(step({ id: 'gate', name: 'tier 2 — gate the driven corpus',
+        json: { findings: [], unexercised: ['sync-subscription'], errors: 0, warnings: 0 } }))!
+    expect(f.headline).toContain('Nothing undeclared')
+    expect(f.body).toContain('sync-subscription')
+    expect(f.body).toContain('missing coverage rather than dead declaration')
+})
+
+test('the gate puts errors above warnings, whatever order they arrived in', () => {
+    const mk = (severity: string, kind: string, operation: string) =>
+        ({ severity, kind, operation, detail: `${severity} thing`, remedy: `fix ${kind}` })
+    const f = findingOf(step({ id: 'gate', name: 'tier 2 — gate the driven corpus', json: {
+        findings: [mk('warn', 'undeclared-read', 'a'), mk('error', 'undeclared-write', 'b')],
+    } }))!
+    expect(f.headline).toContain('1 error(s), 1 warning(s)')
+    expect(f.body.indexOf('undeclared write')).toBeLessThan(f.body.indexOf('undeclared read'))
+})
+
+test('invariants that never ran are named, because not run is not held', () => {
+    const f = findingOf(step({ id: 'invariants', name: 'tier 2 — invariants', json: {
+        results: [{ name: 'a', newKeys: [], knownKeys: [] }, { name: 'b', newKeys: ['row-1'], knownKeys: [] }],
+        skipped: ['no-overlapping-scheduled-sessions'],
+    } }))!
+    expect(f.headline).toBe('1 held · 1 violated · 0 could not be evaluated · 1 not run.')
+    expect(f.body).toContain('no-overlapping-scheduled-sessions')
+    expect(f.body).toContain('Not evidence that they hold')
+    expect(f.body).toContain('row-1')
+})
+
+test('an invariant that threw is separated from one that was violated', () => {
+    const f = findingOf(step({ id: 'invariants', name: 'tier 2 — invariants', json: {
+        results: [{ name: 'broken', newKeys: [], knownKeys: [], error: 'relation "x" does not exist' }],
+        skipped: [],
+    } }))!
+    expect(f.headline).toContain('1 could not be evaluated')
+    expect(f.body).toContain('relation')
+})

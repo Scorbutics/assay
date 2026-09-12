@@ -49,7 +49,7 @@ export type StepState = 'held' | 'contradicted' | 'could-not-run' | 'not-run'
 export interface StepRecord {
     /** Which renderer reads this step's findings. Not cosmetic: the page's job is to
      *  show WHAT WAS FOUND, and only the step itself knows the shape of that. */
-    id: 'tier1' | 'unattributed' | 'nodes' | 'review' | 'tier2'
+    id: 'tier1' | 'unattributed' | 'nodes' | 'review' | 'tier2' | 'gate' | 'invariants'
     name: string
     /** What a reader needs to know this step was worth running. */
     asks: string
@@ -123,7 +123,7 @@ export function verdictOf(steps: StepRecord[]): RunRecord['verdict'] {
     return 'PASS'
 }
 
-export function collect(root: string, base: string | null): RunRecord {
+export function collect(root: string, base: string | null, corpus: string | null, nextLog: string | null): RunRecord {
     const startedAt = new Date().toISOString()
     const t0 = Date.now()
     const steps: StepRecord[] = []
@@ -145,10 +145,36 @@ export function collect(root: string, base: string | null): RunRecord {
     }
 
     // TIER 2 — the only steps that observe anything actually happening.
+    //
+    // A CORPUS THAT WAS ALREADY DRIVEN IS NOT A SHORTCUT. Driving writes real rows,
+    // so a harness that has just run `assay verify` must not have this command drive
+    // everything a second time — that is twice the rows, twice the runtime, and a
+    // second run of mutating operations against state the first one left. Given
+    // `--corpus`, tier 2 becomes the gate and the invariants over the statements
+    // that run captured, which is exactly what `verify` does once its driving is
+    // done. Absent it, and with a database in reach, this drives for itself.
     const db = (() => { try { return discover() } catch { return { url: null, via: 'no .assay/config.json' } } })()
-    if (db.url) {
+    const captured = corpus && existsSync(corpus)
+        ? readFileSync(corpus, 'utf8').split('\n').filter(Boolean).length
+        : 0
+    if (corpus && captured > 0) {
+        steps.push(runStep('gate', 'tier 2 — gate the driven corpus',
+            `Against the ${captured} statement(s) this run captured: did any operation touch something it was not declared to touch?`,
+            [commandPath('check'), corpus, '--json'], root, true))
+        steps.push(runStep('invariants', 'tier 2 — invariants',
+            'Do the properties that must hold for every input still hold on the state the run left?',
+            [commandPath('invariants'), '--corpus', corpus, '--json'], root, true))
+    } else if (corpus) {
+        // AN EMPTY CORPUS IS NOT A CLEAN ONE. Every check below it would trivially
+        // hold, which is the same vacuous pass `verify` refuses outright.
+        const why = existsSync(corpus)
+            ? `the corpus at ${corpus} is empty — nothing was observed, so nothing can be gated`
+            : `no corpus at ${corpus} — the run that was meant to produce it did not`
+        steps.push(skipped('gate', 'tier 2 — gate the driven corpus', 'Did any operation touch something it was not declared to touch?', why))
+        steps.push(skipped('invariants', 'tier 2 — invariants', 'Do the properties that must hold for every input still hold?', why))
+    } else if (db.url) {
         steps.push(runStep('tier2', 'tier 2 — drive, gate, invariants', 'Driven against a real database: what did each operation touch, and do the invariants hold on the state it left?',
-            [commandPath('verify')], root, false))
+            [commandPath('verify'), ...(nextLog ? ['--next-log', nextLog] : [])], root, false))
     } else {
         steps.push(skipped('tier2', 'tier 2 — drive, gate, invariants',
             'Driven against a real database: what did each operation touch, and do the invariants hold?',
@@ -168,7 +194,11 @@ export function collect(root: string, base: string | null): RunRecord {
     }
     const t2 = steps.find(s => s.name.startsWith('tier 2'))
     const m = t2?.stdout.match(/corpus:\s*(\d+)\s*statement/)
-    coverage['statements captured'] = m ? m[1] : t2?.state === 'not-run' ? 'none — tier 2 did not run' : '—'
+    coverage['statements captured'] =
+        corpus && captured > 0 ? String(captured)
+        : m ? m[1]
+        : t2?.state === 'not-run' ? 'none — tier 2 did not run'
+        : '—'
 
     const verdict = verdictOf(steps)
 
@@ -320,6 +350,68 @@ function reviewFinding(j: Record<string, unknown>): Finding {
     }
 }
 
+function gateFinding(j: Record<string, unknown>): Finding {
+    const findings = (j.findings ?? []) as Array<{ severity: string; kind: string; operation: string; detail: string; remedy: string }>
+    const errors = findings.filter(f => f.severity === 'error')
+    const unexercised = (j.unexercised ?? []) as string[]
+    if (!findings.length) {
+        return {
+            headline: `Nothing undeclared: every statement in the corpus was covered by a declaration.`,
+            body: unexercised.length
+                ? `<h4>Declared but not exercised by this run <span class="n">${unexercised.length}</span></h4>
+                   <p class="why">Never a failure — a corpus only contains what was driven, so absence is missing coverage rather than dead declaration.</p>
+                   <p>${tags(unexercised)}</p>`
+                : '',
+        }
+    }
+    const byKind = new Map<string, typeof findings>()
+    for (const f of findings) byKind.set(f.kind, [...(byKind.get(f.kind) ?? []), f])
+    let body = ''
+    // Errors first, then warnings — the gate blocks on the first and not the second.
+    for (const [kind, group] of [...byKind.entries()].sort((a, b) =>
+        (a[1][0].severity === 'error' ? 0 : 1) - (b[1][0].severity === 'error' ? 0 : 1))) {
+        body += `<h4>${esc(kind.replace(/-/g, ' '))} <span class="n">${group.length}</span></h4>
+          <p class="why">${esc(group[0].remedy)}</p>` +
+          table(['operation', 'what it did'], group.map(f => [
+              `<code>${esc(f.operation)}</code>`,
+              `<span class="sev" data-s="${esc(f.severity)}">${esc(f.detail)}</span>`,
+          ]))
+    }
+    return {
+        headline: `${errors.length} error(s), ${findings.length - errors.length} warning(s) over ${new Set(findings.map(f => f.operation)).size} operation(s).`,
+        body,
+    }
+}
+
+function invariantsFinding(j: Record<string, unknown>): Finding {
+    const results = (j.results ?? []) as Array<{ name: string; newKeys: string[]; knownKeys: string[]; error?: string }>
+    const skippedNames = (j.skipped ?? []) as string[]
+    const violated = results.filter(r => r.newKeys.length)
+    const broken = results.filter(r => r.error)
+    const held = results.length - violated.length - broken.length
+    let body = ''
+    if (violated.length) {
+        body += `<h4>Violated <span class="n">${violated.length}</span></h4>` +
+          table(['invariant', 'new violations'], violated.map(r => [
+              `<code>${esc(r.name)}</code>`, `<span class="sev" data-s="error">${tags(r.newKeys.slice(0, 8))}</span>`,
+          ]))
+    }
+    if (broken.length) {
+        body += `<h4>Could not be evaluated <span class="n">${broken.length}</span></h4>` +
+          table(['invariant', 'error'], broken.map(r => [`<code>${esc(r.name)}</code>`, esc(r.error ?? '')]))
+    }
+    if (skippedNames.length) {
+        // SAID, because an invariant that did not run is not one that held.
+        body += `<h4>Not run <span class="n">${skippedNames.length}</span></h4>
+          <p class="why">The corpus never wrote their tables, so this run could not have violated them. Not evidence that they hold.</p>
+          <p>${tags(skippedNames)}</p>`
+    }
+    return {
+        headline: `${held} held · ${violated.length} violated · ${broken.length} could not be evaluated · ${skippedNames.length} not run.`,
+        body,
+    }
+}
+
 export function findingOf(s: StepRecord): Finding | null {
     if (!s.json || typeof s.json !== 'object') return null
     const j = s.json as Record<string, unknown>
@@ -328,6 +420,8 @@ export function findingOf(s: StepRecord): Finding | null {
         if (s.id === 'unattributed') return unattributedFinding(j)
         if (s.id === 'nodes') return nodesFinding(j)
         if (s.id === 'review') return reviewFinding(j)
+        if (s.id === 'gate') return gateFinding(j)
+        if (s.id === 'invariants') return invariantsFinding(j)
     } catch { return null }
     return null
 }
@@ -481,8 +575,11 @@ function main() {
     const root = projectRoot()
     const out = at('--out', join(root, '.assay/attest.html')) as string
     const base = at('--base', null)
+    // Handed a corpus, tier 2 gates THAT rather than driving again — see collect().
+    const corpus = at('--corpus', null)
+    const nextLog = at('--next-log', null)
 
-    const record = collect(root, base)
+    const record = collect(root, base, corpus, nextLog)
 
     if (args.includes('--json')) {
         console.log(JSON.stringify(record, null, 2))
