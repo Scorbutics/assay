@@ -109,6 +109,29 @@ rows and one sentence of advice, not ninety-six lines.
 | `INCONCLUSIVE` | a step could not run (exit 2) — retry, do not repair |
 | `INCOMPLETE` | nothing failed and a tier never ran — **not a pass** |
 
+### Attesting to a corpus something else drove
+
+Driving writes real rows. A harness that has just run `assay verify` must not have
+`attest` drive everything a second time — twice the rows, twice the runtime, and a
+second run of mutating operations against the state the first one left.
+
+```yaml
+- run: bun run assay:verify --next-log /tmp/next.log      # drives once
+- run: bun run assay:attest --corpus /tmp/assay-verify.log --out attest.html
+```
+
+Given `--corpus`, tier 2 becomes the **gate** and the **invariants** over the
+statements that run captured — which is exactly what `verify` does once its driving
+is done. Absent it, and with a database in reach, `attest` drives for itself
+(`--next-log` is forwarded).
+
+An empty or missing corpus is not a shortcut to green: both steps record `did not
+run` with the reason, and the verdict is `INCOMPLETE`.
+
+The invariants card names the ones that were **not run** — `--corpus` only runs
+invariants whose tables the corpus actually wrote, and an invariant this run could
+not have violated is not one this run showed holding.
+
 ### Tier 2 needs the stack, so the page says when it did not run
 
 `assay verify` drives real operations, which needs PostgREST, the Edge runtime and
