@@ -24,6 +24,13 @@ Backend work goes through assay (the effect ledger — see assay/README.md):
    a host this operation has never reached is a DECISION someone has to take, and a JSON hunk in a
    forty-file diff is where decisions go to be scrolled past. If the output has a red row, say so
    in your own summary rather than leaving it for the reader to find.
+ - DO NOT REPORT A RUN, HAND OVER THE RECORD OF IT. "I ran assay, all green" cannot be told
+   apart from a run that examined nothing, so it is not a report:
+     bun run assay:attest --base origin/main
+   writes one self-contained HTML page saying which steps ran, which did not and why, how much
+   each looked at, and each step's own output verbatim. Hand over THAT file. Its verdict is
+   `INCOMPLETE`, never `PASS`, when a tier could not run — so a green summary you wrote by hand
+   over a run with no database is contradicted by the artifact you attached to it.
  - If no probe reaches the branch you changed, ADD ONE to `.assay/probes.json` (a list per
    operation, one per branch) before you finish. If the branch needs DB state, drive the
    operation that writes the table it reads — the declarations tell you which one that is —

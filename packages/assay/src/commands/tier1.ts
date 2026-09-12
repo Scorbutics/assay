@@ -30,7 +30,18 @@ import { commandPath, projectRoot, isEntrypoint } from '../lib/paths.ts'
 const ROOT = projectRoot()
 const read = (p: string) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'))
 
-interface Issue { severity: 'error' | 'warn'; operation: string; detail: string; remedy: string }
+interface Issue {
+    severity: 'error' | 'warn'
+    operation: string
+    /** The CLASS of finding. Readers group by it — 26 findings of one kind is one
+     *  fact about the project, and printing it 26 times is how a report becomes a log. */
+    kind: 'undeclared-operation' | 'no-probe' | 'undeclared-static-write'
+    /** What the finding is ABOUT (a table, usually), so a reader can fold by
+     *  operation without parsing it back out of the prose. */
+    subject?: string
+    detail: string
+    remedy: string
+}
 
 function operationsOnDisk(): string[] {
     const cfg = loadConfig()
@@ -53,18 +64,42 @@ function main() {
     const onDisk = operationsOnDisk()
     const { map: rpcMap } = loadRpcMap(join(ROOT, '.assay/rpc-writes.json'))
 
+    // NOTHING ON DISK IS NOT A CLEAN RUN. Every loop below iterates `onDisk`, so an
+    // empty list makes each of them vacuous and the tier reports `0 error(s)` over a
+    // project it never read. It happened: `backend/` is a git SUBMODULE, a plain
+    // `git clone` without `--recursive` leaves it empty, `declaredOperations()`
+    // swallows the ENOENT and returns [] — and tier 1 printed
+    // "0 operations on disk, 59 declared, 0 error(s)" and exited 0.
+    //
+    // Exit 2, not 1: the declarations are not contradicted, the checkout is
+    // incomplete. That is an environment fault to retry, never a finding to repair.
+    if (onDisk.length === 0 && Object.keys(declarations).length > 0) {
+        console.error(`✗ ${Object.keys(declarations).length} operation(s) are declared and NONE was found on disk.`)
+        console.error('  Every check in tier 1 iterates the operations on disk, so this run examined')
+        console.error('  nothing — which is not the same as finding nothing.')
+        console.error('  Usually an unchecked-out submodule: git submodule update --init --recursive')
+        process.exit(2)
+    }
+
     let staticFootprint: Record<string, { tables: string[]; writes: string[] }> = {}
+    let staticCrawlFailed = ''
     try {
         staticFootprint = JSON.parse(
-            execFileSync('bun', [commandPath('static'), '--json'], { encoding: 'utf8' }))
-    } catch { /* the static crawl is best-effort; its absence is reported below */ }
+            execFileSync('bun', [commandPath('static'), '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))
+    } catch (e) {
+        // SAID, not swallowed. The comment here used to claim the absence was
+        // "reported below", and it was not: with no static footprint the loop that
+        // would have reported it has nothing to compare, so the crawl could crash
+        // outright and the tier still printed a clean summary.
+        staticCrawlFailed = String((e as { message?: string }).message ?? e).split('\n')[0]
+    }
 
     const issues: Issue[] = []
 
     for (const op of onDisk) {
         if (!declarations[op]) {
             issues.push({
-                severity: 'error', operation: op,
+                severity: 'error', operation: op, kind: 'undeclared-operation',
                 detail: 'exists on disk but has no declaration',
                 remedy: 'Declare its boundary, then drive it: bun run assay:drive ' + op,
             })
@@ -72,7 +107,7 @@ function main() {
         }
         if (!probed.has(op)) {
             issues.push({
-                severity: 'warn', operation: op,
+                severity: 'warn', operation: op, kind: 'no-probe',
                 detail: 'has no probe, so Tier 2 can never drive it',
                 remedy: 'Add an entry to .assay/probes.json.',
             })
@@ -85,7 +120,7 @@ function main() {
         for (const t of [...new Set([...staticWrites, ...viaRpc])]) {
             if (!declarations[op].writes.includes(t)) {
                 issues.push({
-                    severity: 'warn', operation: op,
+                    severity: 'warn', operation: op, kind: 'undeclared-static-write', subject: t,
                     detail: `code can write "${t}", which is not declared`,
                     remedy: 'Static analysis over-reports through shared imports — confirm before accepting.',
                 })
@@ -99,7 +134,7 @@ function main() {
 
     if (asJson) {
         console.log(JSON.stringify({ issues, onDisk: onDisk.length, declared: Object.keys(declarations).length,
-            unprobed: onDisk.filter(o => declarations[o] && !probed.has(o)), neverObserved }, null, 2))
+            unprobed: onDisk.filter(o => declarations[o] && !probed.has(o)), neverObserved, staticCrawlFailed }, null, 2))
         process.exit(errors.length ? 1 : 0)
     }
 
@@ -122,6 +157,10 @@ function main() {
     } catch { /* no registry yet */ }
     console.log(`\nassay tier 1 — ${onDisk.length} operations on disk, ${Object.keys(declarations).length} declared, ` +
         `${errors.length} error(s), ${warns.length} warning(s).`)
+    if (staticCrawlFailed) {
+        console.log(`  ! the static crawl did not run (${staticCrawlFailed}) — the footprint`)
+        console.log('    comparison below it was skipped, so this run proves less than a clean one.')
+    }
     // The line this tier exists to print.
     console.log(`  Tier 2 coverage: ${unprobed} operation(s) have no probe; ` +
         `${neverObserved.length} declaration(s) have never been observed.`)

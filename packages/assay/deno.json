@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/lib/corpus.ts",
     "./cli": "./src/cli.ts",
+    "./commands/attest": "./src/commands/attest.ts",
     "./commands/backfill": "./src/commands/backfill.ts",
     "./commands/capture": "./src/commands/capture.ts",
     "./commands/check": "./src/commands/check.ts",

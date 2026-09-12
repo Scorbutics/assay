@@ -62,6 +62,61 @@ only reaches its notify phase with a payment already in the right state, so its
 touches shows up as three lines (`+ writes: audit_log`) instead of four hundred
 lines of handler.
 
+## `assay attest` — one page saying what a run actually examined
+
+```bash
+assay attest                       # writes .assay/attest.html
+assay attest --base origin/main    # include the declaration change
+assay attest --json                # the run record behind the page
+```
+
+Every other command here prints to a terminal, and increasingly nobody is at that
+terminal — an agent is. What reaches the person is the agent's sentence about the
+run: *"I ran assay, all green."* That sentence is unfalsifiable. It cannot be
+distinguished from a run that examined nothing, a run of a smaller set of checks,
+or no run at all.
+
+So this writes a FILE, produced by assay from its own output rather than composed
+by whoever is reporting it, openable without rerunning anything.
+
+### Three rules that make it an attestation rather than a summary
+
+1. **The step list is fixed** in `attest.ts` and cannot be selected from the
+   command line. A caller cannot run less and produce the same-looking page.
+2. **A step that did not run is rendered**, with the same weight as one that did
+   and the reason it could not. Omission is how a report lies without saying
+   anything false.
+3. **The verdict is never `PASS` when a tier did not run.** Tier 1 is static and
+   says nothing about runtime, so a green page with no database behind it has its
+   own word — `INCOMPLETE`.
+
+### Findings are folded; the log is the fallback
+
+The first version carried each step's raw stdout and nothing else, on the theory
+that verbatim output is what makes it an attestation. It is — and it also made a
+log viewer: tier 1 printed twenty-four findings of ONE class, four lines each,
+with the same remedy repeated twenty-four times.
+
+So each step now renders its finding from the JSON its command already emits,
+folded by class, with the remedy stated once — and carries the verbatim output
+underneath, collapsed. Twenty-four findings across eleven operations is eleven
+rows and one sentence of advice, not ninety-six lines.
+
+| verdict | |
+|---|---|
+| `PASS` | every step ran and held |
+| `FAIL` | something contradicted a declaration (exit 1) |
+| `INCONCLUSIVE` | a step could not run (exit 2) — retry, do not repair |
+| `INCOMPLETE` | nothing failed and a tier never ran — **not a pass** |
+
+### Tier 2 needs the stack, so the page says when it did not run
+
+`assay verify` drives real operations, which needs PostgREST, the Edge runtime and
+the app serving — `supabase start`, so docker. In an environment without it the
+step records `did not run — no database reachable` and the verdict is `INCOMPLETE`.
+That is the honest output, and it is the reason rule 3 exists: an invariant over a
+database no operation has touched returns no rows and goes green.
+
 ## `assay review` — the review surface, where review happens
 
 The line above was half true for a long time. The file is reviewABLE; nothing put
