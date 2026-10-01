@@ -50,7 +50,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 import { NOT_COVERED, type Severity } from '../lib/corpus.ts'
-import { parseDeclarations, type Declaration, type DeclarationFile } from './declare.ts'
+import { followAlternatives, parseDeclarations, type Declaration, type DeclarationFile, type FollowAfter } from './declare.ts'
 import { assayPath, isEntrypoint, projectRoot } from '../lib/paths.ts'
 
 /** Stickiness: the workflow finds its own previous comment by this and edits it. */
@@ -70,6 +70,9 @@ const added = (before: string[] | undefined, after: string[] | undefined) =>
     (after ?? []).filter(x => !(before ?? []).includes(x))
 
 const code = (xs: string[]) => xs.map(x => `\`${x}\``).join(', ')
+/** An ordering-rule alternative as one comparable string: `members(wix_contact_id|stripe_customer_id)`. */
+const altKey = (alt: FollowAfter) =>
+    alt.target + (alt.anyFilter?.length ? `(${[...alt.anyFilter].sort().join('|')})` : '')
 
 /**
  * The host an outbound call reaches, from `METHOD host/path/{id}`.
@@ -134,6 +137,24 @@ export function review(before: DeclarationFile, after: DeclarationFile): ReviewF
         const followNew = added(Object.keys(a.mustFollow ?? {}), Object.keys(b.mustFollow ?? {}))
         if (followGone.length) push(op, 'error', 'prohibition-removed', `**ordering rule deleted** — \`mustFollow\`: ${code(followGone)}`)
         if (followNew.length) push(op, 'note', 'prohibition-added', `ordering rule added — \`mustFollow\`: ${code(followNew)}`)
+        // A rule that survives under the same key can still be loosened: every alternative in `after`
+        // is another statement allowed to excuse the fallback, and a longer `within` lets an older one
+        // do it. Neither is visible as a deletion, so each is named here as what it is.
+        for (const call of Object.keys(b.mustFollow ?? {})) {
+            const was = a.mustFollow?.[call]
+            const now = b.mustFollow?.[call]
+            if (!was || !now) continue
+            const wasAlts = followAlternatives(was).map(altKey)
+            const nowAlts = followAlternatives(now).map(altKey)
+            const excuses = added(wasAlts, nowAlts)
+            const dropped = added(nowAlts, wasAlts)
+            if (excuses.length) push(op, 'error', 'prohibition-widened', `**ordering rule widened** — \`mustFollow.${call}\` now also accepts ${code(excuses)} before it`)
+            if (dropped.length) push(op, 'note', 'prohibition-narrowed', `ordering rule narrowed — \`mustFollow.${call}\` no longer accepts ${code(dropped)}`)
+            const wasWithin = was.within ?? 10
+            const nowWithin = now.within ?? 10
+            if (nowWithin > wasWithin) push(op, 'error', 'prohibition-widened', `**ordering rule widened** — \`mustFollow.${call}\` looks back ${nowWithin} statements, was ${wasWithin}`)
+            if (nowWithin < wasWithin) push(op, 'note', 'prohibition-narrowed', `ordering rule narrowed — \`mustFollow.${call}\` looks back ${nowWithin} statements, was ${wasWithin}`)
+        }
         if (a.keyingWhy && !b.keyingWhy) push(op, 'warn', 'rationale-removed', 'the `keyingWhy` rationale was removed')
         else if (a.keyingWhy && b.keyingWhy && a.keyingWhy !== b.keyingWhy) push(op, 'note', 'rationale-changed', 'the `keyingWhy` rationale changed')
 

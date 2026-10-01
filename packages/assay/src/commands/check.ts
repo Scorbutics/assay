@@ -43,7 +43,7 @@
 
 import { loadRpcMap, printNotCovered, readCorpus, summarise, type Finding, type Severity } from '../lib/corpus.ts'
 import { checkClients, loadClients } from '../lib/clients.ts'
-import { loadDeclarations, type Declaration } from './declare.ts'
+import { followAlternatives, loadDeclarations, type Declaration } from './declare.ts'
 
 const ACCEPT = 'assay declare <corpus> --write'
 
@@ -223,14 +223,17 @@ function main() {
             for (let i = 0; i < ordered.length; i++) {
                 const e = ordered[i]
                 if (e.target !== call || e.error) continue
-                const preceded = ordered.slice(Math.max(0, i - window), i).some(p =>
-                    p.target === rule.after.target && !p.error &&
-                    (!rule.after.anyFilter?.length || rule.after.anyFilter.some(f => p.filters.includes(f))))
+                const alternatives = followAlternatives(rule)
+                const preceded = ordered.slice(Math.max(0, i - window), i).some(p => !p.error &&
+                    alternatives.some(alt => p.target === alt.target &&
+                        (!alt.anyFilter?.length || alt.anyFilter.some(f => p.filters.includes(f)))))
                 if (preceded) continue
+                const wanted = alternatives
+                    .map(alt => alt.target + (alt.anyFilter ? ` lookup on ${alt.anyFilter.join('/')}` : ''))
+                    .join(' or ')
                 findings.push({
                     severity: 'error', operation: s.operation, kind: 'not-a-fallback',
-                    detail: `calls "${call}" without a preceding ${rule.after.target}`
-                        + (rule.after.anyFilter ? ` lookup on ${rule.after.anyFilter.join('/')}` : '')
+                    detail: `calls "${call}" without a preceding ${wanted}`
                         + ` — permitted only as a fallback` + (rule.why ? ` — ${rule.why}` : ''),
                     remedy: 'Try the stable identifier first, then fall back.',
                 })

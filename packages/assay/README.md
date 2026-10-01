@@ -171,7 +171,7 @@ it. Severities mirror `check`'s own vocabulary rather than inventing a second on
 
 | Level | What |
 |---|---|
-| 🔴 error | a deleted `mustNotFilterOn` / `mustNotCall` / `mustFollow`, `rlsBypassed` newly true, a new write, a new rpc, a first call to a new HOST |
+| 🔴 error | a deleted `mustNotFilterOn` / `mustNotCall` / `mustFollow`, a `mustFollow` that gains an `after` alternative or a longer `within`, `rlsBypassed` newly true, a new write, a new rpc, a first call to a new HOST |
 | 🟡 warn | a new operation, a new endpoint on a host already reached, a new read, a removed `keyingWhy` |
 | · note | anything that tightens the gate, and banded magnitude shifts |
 

@@ -75,16 +75,34 @@ export interface Declaration {
      *
      * The distinction is visible in the ledger as ORDER: a fallback is preceded
      * by the stable-id attempt; a first resort is not.
+     *
+     * `after` may LIST alternatives when one operation reaches the fallback by
+     * more than one road. process-payment's Wix renewal path has no member id to
+     * try at all; its stable-id attempt is resolving the buyer's Wix CONTACT,
+     * and only when that finds nobody does it fall back to the member's email.
+     * Any one alternative preceding the call satisfies the rule. Each one added
+     * is a new way to excuse the fallback, so `assay review` reports it as a
+     * widening, never as noise.
      */
-    mustFollow?: Record<string, {
-        /** The statement that must appear shortly before. */
-        after: { target: string; anyFilter?: string[] }
-        /** How far back to look. Unbounded would let one early lookup excuse every later call. */
-        within?: number
-        why?: string
-    }>
+    mustFollow?: Record<string, FollowRule>
     /** Why the rule exists, so a future reader can tell intent from accident. */
     keyingWhy?: string
+}
+
+/** One statement that counts as "the stable-id attempt" for an ordering rule. */
+export interface FollowAfter { target: string; anyFilter?: string[] }
+
+export interface FollowRule {
+    /** The statement that must appear shortly before — or a list, any one of which will do. */
+    after: FollowAfter | FollowAfter[]
+    /** How far back to look. Unbounded would let one early lookup excuse every later call. */
+    within?: number
+    why?: string
+}
+
+/** A rule's `after`, always as a list — the single-object form is the common one in files. */
+export function followAlternatives(rule: FollowRule): FollowAfter[] {
+    return Array.isArray(rule.after) ? rule.after : [rule.after]
 }
 
 export interface DeclarationFile {

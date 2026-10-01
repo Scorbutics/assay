@@ -34,6 +34,24 @@ test('a deleted ordering rule is an error too', () => {
     expect(of(found, 'prohibition-removed')?.severity).toBe('error')
 })
 
+test('an ordering rule that gains an alternative is WIDENED — another statement may now excuse the fallback', () => {
+    const rule = (after: unknown, within?: number) =>
+        file({ x: op({ mustFollow: { get_auth_user_by_email: { after: after as never, within } } }) })
+    const members = { target: 'members', anyFilter: ['wix_contact_id', 'stripe_customer_id'] }
+    const contact = { target: 'POST www.wixapis.com/contacts/v4/contacts/query' }
+
+    const widened = review(rule(members), rule([members, contact]))
+    expect(of(widened, 'prohibition-widened')?.severity).toBe('error')
+    expect(of(widened, 'prohibition-widened')?.detail).toContain('contacts/query')
+
+    // The single-object form and a one-element list are the same rule, filter order included.
+    expect(kinds(review(rule(members), rule([{ ...members, anyFilter: ['stripe_customer_id', 'wix_contact_id'] }])))).toEqual([])
+
+    expect(of(review(rule([members, contact]), rule(members)), 'prohibition-narrowed')?.severity).toBe('note')
+    expect(of(review(rule(members, 10), rule(members, 25)), 'prohibition-widened')?.detail).toContain('25')
+    expect(of(review(rule(members, 25), rule(members)), 'prohibition-narrowed')?.severity).toBe('note')
+})
+
 test('an ADDED prohibition is a note — tightening is not news', () => {
     const found = review(file({ x: op({}) }), file({ x: op({ mustNotCall: ['f'] }) }))
     expect(of(found, 'prohibition-added')?.severity).toBe('note')
