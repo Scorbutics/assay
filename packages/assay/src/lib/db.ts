@@ -37,6 +37,12 @@ export interface Config {
     }
     operations?: { root: string; entry: string }
     /**
+     * The SQL migrations directory, applied in lexical file order. Read by
+     * `assay rpc-map --check`. Default: `migrations/` beside `operations.root`,
+     * which is the supabase layout (`supabase/functions` + `supabase/migrations`).
+     */
+    migrations?: string
+    /**
      * The browser data path — see `commands/drive-client.ts`.
      *
      * `client` names the module exporting the host's browser client and the

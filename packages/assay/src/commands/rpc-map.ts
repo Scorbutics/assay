@@ -23,6 +23,19 @@
  * Usage:
  *   assay rpc-map > .assay/rpc-writes.json
  *   assay report --rpc-map .assay/rpc-writes.json < ledger.log
+ *   assay rpc-map --check [--map <file>] [--migrations <dir>]
+ *
+ * ## --check: is the committed map stale? (no database)
+ *
+ * The map is committed because `assay check` refuses without it, and a committed
+ * copy goes stale when a migration adds a function and nobody re-runs this. Its key
+ * set — every `public` function — is derivable from the migrations alone, so
+ * `--check` replays them and compares (see lib/migrated-functions.ts). Cheap enough
+ * for every commit. It cannot see a changed BODY: that still needs a regeneration
+ * against a database, diffed against the committed file.
+ *
+ * Exit 0 the sets agree · 1 they differ · 2 nothing to compare (no migrations
+ * directory, no `.sql` in it, or no map) — an incomplete checkout, not a finding.
  *
  * ## Honest limits
  *
@@ -34,7 +47,7 @@
  * It is a better lower bound than "nothing", not a sound analysis.
  */
 
-import { discover } from '../lib/db.ts'
+import { discover, loadConfig } from '../lib/db.ts'
 import { Client } from 'pg'
 
 // `\b`, not Postgres's `\m` — this is a JavaScript regex. With `\m` the pattern
@@ -49,7 +62,53 @@ const DYNAMIC_RE = /\bexecute\b/i
 
 interface Fn { name: string; body: string }
 
-import { isEntrypoint } from '../lib/paths.ts'
+import { isEntrypoint, fromRoot } from '../lib/paths.ts'
+import { functionsFromMigrations, compareToMap } from '../lib/migrated-functions.ts'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
+
+function check(argv: string[]): number {
+    const at = (flag: string): string | undefined => {
+        const i = argv.indexOf(flag)
+        return i >= 0 ? argv[i + 1] : undefined
+    }
+    const cfg = loadConfig()
+    const migrationsRel = at('--migrations') ?? cfg.migrations
+        ?? join(dirname(cfg.operations?.root ?? 'backend/supabase/functions'), 'migrations')
+    const mapRel = at('--map') ?? '.assay/rpc-writes.json'
+    const migrationsDir = fromRoot(migrationsRel), mapPath = fromRoot(mapRel)
+
+    // NOTHING READ IS NOT A CLEAN RUN. An empty migration set and an empty map
+    // agree perfectly, and a submodule cloned without --recursive is exactly that.
+    const files = existsSync(migrationsDir) ? readdirSync(migrationsDir).filter(f => f.endsWith('.sql')) : []
+    if (files.length === 0) {
+        console.error(`✗ No .sql migrations under ${migrationsRel} — nothing was compared, so nothing is proved.`)
+        console.error('  Set `migrations` in .assay/config.json, pass --migrations <dir>, or check out the')
+        console.error('  submodule that holds them: git submodule update --init --recursive')
+        return 2
+    }
+    if (!existsSync(mapPath)) {
+        console.error(`✗ No RPC write map at ${mapRel}. Generate it against a migrated database:`)
+        console.error(`    assay rpc-map > ${mapRel}`)
+        return 2
+    }
+
+    const alive = functionsFromMigrations(files.map(f => ({ file: f, sql: readFileSync(join(migrationsDir, f), 'utf8') })))
+    const writes = (JSON.parse(readFileSync(mapPath, 'utf8')).writes ?? {}) as Record<string, string[]>
+    const { missing, extra } = compareToMap(alive, Object.keys(writes))
+
+    if (missing.length || extra.length) {
+        console.error(`✗ ${mapRel} is stale against ${relative(fromRoot(), migrationsDir) || migrationsRel}.`)
+        if (missing.length) console.error(`  created by a migration, absent from the map: ${missing.join(', ')}`)
+        if (extra.length) console.error(`  in the map, but no migration leaves it behind: ${extra.join(', ')}`)
+        console.error('  Regenerate it against a database with the migrations applied, and commit it:')
+        console.error(`    assay rpc-map > ${mapRel}`)
+        return 1
+    }
+    console.log(`✓ rpc-map: ${alive.size} function(s) from ${files.length} migration(s) match ${mapRel}.`)
+    console.log('  Function SET only — a changed body keeps its key; regenerate against a database to see that.')
+    return 0
+}
 
 async function main() {
     // One place decides which database the toolchain talks to: .assay/config.json,
@@ -129,4 +188,7 @@ async function main() {
 // nothing, `new Client('')` falls back to pg's default host — the literal string
 // "base" — and the resolver failure surfaced as an unattributed rejection that
 // named an innocent test file.
-if (isEntrypoint(import.meta.url)) main()
+if (isEntrypoint(import.meta.url)) {
+    if (process.argv.includes('--check')) process.exit(check(process.argv.slice(2)))
+    else main()
+}
