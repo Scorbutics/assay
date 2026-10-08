@@ -16,6 +16,12 @@ Backend work goes through assay (the effect ledger — see assay/README.md):
    `--require` is not optional: without it an operation you never drove is simply absent
    from the corpus, and absence exits 0. An undeclared write fails; accept an intended
    widening with `bun run assay:declare /tmp/after.log --write` — that diff is the review surface.
+ - A MIGRATION THAT CREATES, CHANGES OR DROPS A POSTGRES FUNCTION ships with a regenerated
+   `.assay/rpc-writes.json` IN THE SAME CHANGE: apply the migration locally, then
+   `bun run assay:rpc-map` and commit the result. The map is what turns an `rpc` into a write
+   set; a stale one silently shrinks it. `assay rpc-map --check` (no database, every commit)
+   catches an added or dropped function, but a changed BODY keeps its key — only a regeneration
+   against a database sees that.
  - WHAT YOU CHANGED IN THE DECLARATION IS WHAT A HUMAN REVIEWS, so render it before saying a
    backend change is done:
      bun run assay:review --base origin/main

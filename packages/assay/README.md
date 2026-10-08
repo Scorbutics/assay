@@ -233,6 +233,16 @@ This codebase pushes mutations into Postgres functions. Without
 A silently empty write set is worse than none, because it is believed. Both
 `declare` and `check` refuse to run without the map.
 
+The map is generated from `pg_proc`, so it is committed — and a committed copy
+goes stale the moment a migration adds a function nobody regenerated it for.
+`assay rpc-map --check` catches that with no database: the map keys every
+`public` function, so its key set must equal what the migrations leave behind
+after replaying `CREATE` / `DROP` / `ALTER … RENAME` in file order. Run it on
+every commit. It exits 2, not 0, when it finds no migrations (`migrations` in
+`.assay/config.json`, default `migrations/` beside `operations.root`). It cannot
+see a changed body — same name, same key — so keep a regeneration against a live
+database somewhere (a nightly that fails when `git diff` on the map is non-empty).
+
 ## Severity model
 
 | Level | What | Blocks |

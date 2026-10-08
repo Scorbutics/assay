@@ -42,7 +42,7 @@ const SUMMARY: Record<string, string> = {
     'backfill':    'derive shapes from a column that already exists',
     'capture':     'file captured shapes from a runtime log against nodes',
     'intercept':   'serialise intercept policy for the runtime (store/replay)',
-    'rpc-map':     'resolve what Postgres functions write',
+    'rpc-map':     'resolve what Postgres functions write (--check: is the committed map stale?)',
     'rules':       "write assay's host rules into CLAUDE.md / AGENTS.md",
     'scratch':     'point the data plane at a throwaway clone',
     'mark':        'mark a database disposable',
